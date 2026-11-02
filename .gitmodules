@@ -1,0 +1,10 @@
+[submodule "third_party/microduck"]
+	path = third_party/microduck
+	url = https://github.com/HUANG-Haolun/microduck
+	branch = main
+	shallow = true
+[submodule "third_party/microduck_rl"]
+	path = third_party/microduck_rl
+	url = https://github.com/HUANG-Haolun/microduck_rl
+	branch = develop
+	shallow = true

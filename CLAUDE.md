@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this workspace is
 
-A robot-description + RL workspace (not a git repo). It holds SolidWorks-exported robot models (via the SW2URDF exporter) converted into ROS 2 Humble packages, plus vendored upstream reference projects for RL control of a small biped.
+A robot-description + RL workspace (git repo; `third_party/*` are git submodules pointing at the HUANG-Haolun forks, with `upstream` remotes for pollen-robotics — clone with `--recurse-submodules`). It holds SolidWorks-exported robot models (via the SW2URDF exporter) converted into ROS 2 Humble packages, plus vendored upstream reference projects for RL control of a small biped.
 
 - `jduck_description/` — **the current robot model and the target of the RL port.** It is the newer export of the user's Microduck-style biped, which was earlier called MetalDuck. ROS 2 `ament_cmake` package.
   - 15 revolute joints: 5 per leg (hip_yaw/hip_roll/hip_pitch/knee/ankle), neck_pitch, head_pitch/yaw/roll, and mouth.

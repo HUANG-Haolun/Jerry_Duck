@@ -1,0 +1,5 @@
+python-interpreter-path = "/usr/bin/python3"
+search-path = ["/opt/ros/jazzy/lib/python3.12/site-packages"]
+project-excludes = ["third_party/**", "ros2_ws/build/**", "ros2_ws/install/**", "ros2_ws/log/**", "**/.venv/**"]
+# pybullet（装在 ~/.local）是纯 C 扩展、没有类型存根：不报"找不到模块"，按无类型处理
+ignore-missing-imports = ["pybullet", "pybullet_data"]

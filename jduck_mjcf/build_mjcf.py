@@ -150,7 +150,7 @@ def build() -> None:
 
     trunk = spec.body("trunk_base")
     trunk.pos = (0, 0, 0.18)
-    trunk.add_freejoint(name="root")
+    trunk.add_freejoint(name="trunk_base_freejoint")  # same name as microduck (infer_policy.py looks it up)
 
     # Feet: simple boxes on the ankle links, plus sites at the sole.
     for side, sgn in (("left", 1.0), ("right", -1.0)):

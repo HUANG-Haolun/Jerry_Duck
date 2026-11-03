@@ -42,7 +42,7 @@
   <worldbody>
     <body name="trunk_base" pos="0 0 0.18">
       <inertial pos="-0.027527 5.0941e-05 0.014574" quat="0.499316 0.512731 -0.488774 0.49889" mass="0.328" diaginertia="0.000187585 0.000118062 0.000114061"/>
-      <joint name="root" type="free"/>
+      <joint name="trunk_base_freejoint" type="free"/>
       <geom class="visual" type="mesh" rgba="0.89804 0.91765 0.92941 1" mesh="base_link"/>
       <geom name="trunk_base_self_collision" class="self_collision_only" type="mesh" rgba="0.89804 0.91765 0.92941 1" mesh="base_link"/>
       <site name="imu" pos="-0.061163 0.0304 0.0261" group="3"/>

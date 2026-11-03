@@ -1,0 +1,10 @@
+# LSM6DSV16X 配置（imu_lsm6dsv16x.py）。**axes 和 bus/address 要按实物改**。
+# 检查方法：python3 jduck_tools/imu_lsm6dsv16x.py show
+#   机器人平放        → gravity ≈ [ 0,  0, -1]
+#   机头朝下低头（前倾）→ gravity 的 x 变正
+#   左侧抬起（向右倾）  → gravity 的 y 变负
+bus: 1
+address: 0x6A
+axes: ["x", "y", "z"]
+gyro_bias: [0.0, 0.0, 0.0]
+alpha: 0.02

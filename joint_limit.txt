@@ -1,0 +1,16 @@
+servo_ID	init_pose	 max min link
+1	492	742	165	neck_pitch_link
+2	517	849	188	head_pitch_link
+3	488	598	350	head_yaw_link
+4	443	511	443	mouth_link
+5	472	519	418	head_roll_link
+7	215	622	134	right_hip_yaw_link
+8	244	858	162	left_hip_pitch_link
+9	487	848	234	left_knee_link
+10	480	788	234	left_ankle_link
+11	229	568	145	left_hip_roll_link
+12	774	853	364	left_hip_yaw_link
+13	768	846	148	right_hip_pitch_link
+14	520	775	164	right_knee_link
+15	516	770	212	right_ankle_link
+16	522	594	166	right_hip_roll_link

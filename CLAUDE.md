@@ -47,7 +47,12 @@ python3 view_urdf.py jduck_description/urdf/jduck_description.urdf
 
 `ros2_ws` was rebuilt from scratch with Jazzy on 2026-10-30. The earlier build had baked conda-Humble paths into `install/setup.sh`. If build/install ever get mixed between distros, delete `build install log` and rebuild. The colcon warning that `MetalDuck_description`/`W01-00-000-0000` don't follow lowercase naming is harmless.
 
-The robot uses **UBT-12HC bus servos**, not XL330. The protocol spec is `~/Downloads/UBT12HC_总线舵机通讯协议说明.pdf`. Its firmware runs a P-only law with min-PWM 48 and a ±2-count deadband, and the servo ID is fixed to 1. The servos therefore need firmware changes and bench identification before the BAM-based actuator model can be replaced.
+The robot uses **UBT-12HC bus servos**, not XL330.
+- The protocol spec is `~/Downloads/UBT12HC_总线舵机通讯协议说明.pdf`.
+- Official spec (`~/Downloads/UBTECH Company Introduction.pdf` p.16): 0.238/0.198 s per 60° and 8/12 kg·cm at 6.5/8.5 V, which is ≈ 4.8 rad/s and 0.96 N·m at the rated 7.4 V.
+- Stock firmware (`send_rev_230400_ult.ino`): `pwm = clamp(|err|, 48, 255)`, deadband 2; `SERVO_ID` is a compile-time `#define`. In sim it never learns to step.
+- **Modified firmware `firmware/ubt12hc_pd/`**: `pwm = 16·|err| + 15`, deadband 1, 200 ms comm timeout. The protocol is unchanged. It is not yet compiled for AVR or tested on hardware; see its README for the flashing order (one servo first).
+- In training, `JDUCK_FW=16,15,1 JDUCK_NOLOAD=4.8 JDUCK_TORQUE=0.96` selects this firmware with the official servo. Stepping only appears around iteration 330–400 and depends on the seed, so judge runs at ≥ 500 iterations.
 
 The training repo uses `uv run ...` (see `third_party/microduck_rl/AGENTS.md`). It needs a CUDA GPU. Its `.venv` is already installed (torch 2.9.1+cu128 and warp 1.12 both work on the RTX 5090, sm_120). `uv` lives in `~/.local/bin`. Run it with `uv run --frozen ...` so it never re-resolves or re-downloads. PyPI is unreliable from this network, so install extra packages with `uv pip install --index-url https://mirrors.aliyun.com/pypi/simple/ <pkg>`. Do not run `uv sync` casually: it would remove the dev-only `pytest`/`plotly` installed into `.venv` and may try to re-download torch. If the shell has Jazzy sourced, its `PYTHONPATH` leaks ROS's `launch` package into pytest and breaks collection. Run tests as `env -u PYTHONPATH -u AMENT_PREFIX_PATH uv run --frozen pytest tests/ -q -p no:launch_testing`.
 

@@ -305,6 +305,83 @@ def cmd_verify(args, bus: ServoBus) -> None:
         print("已卸力。")
 
 
+def cmd_speed_test(args, bus: ServoBus) -> None:
+    """No-load speed: big step targets (firmware saturates at PWM 255 when
+    |err| >= 255 counts), poll the position, and fit the slope
+    of the constant-speed middle part. The joint must be free to swing (robot hung
+    up, or the servo on the bench without load)."""
+    k = math.radians(360.0 / 1024)
+    sid = args.id
+    r = bus.relax(sid)
+    if r is None:
+        print("无应答。")
+        return
+    lo, hi = args.lo, args.hi
+    print(f"⚠ 舵机 ID {sid} 将在 ADC {lo} ↔ {hi}（≈{(hi - lo) * 0.3516:.0f}°）之间全速来回 {args.reps} 次。"
+          "这段行程里不能有东西挡住！")
+    if input("继续？[y/N] ").strip().lower() != "y":
+        return
+    speeds = []
+    try:
+        bus.transact(sid, CMD_MOVE, lo)
+        time.sleep(1.5)
+        for rep in range(args.reps):
+            for tgt in (hi, lo):
+                bus.transact(sid, CMD_MOVE, tgt)
+                t0 = time.monotonic()
+                log = []
+                while time.monotonic() - t0 < args.window:
+                    # Re-send the MOVE to poll. CMD 0x02 would replace the target
+                    # with the current position; a MOVE reply carries the position too.
+                    rr = bus.transact(sid, CMD_MOVE, tgt)
+                    if rr is not None:
+                        log.append((time.monotonic() - t0, rr.pos))
+                ps = [p for t, p in log]
+                start = hi if tgt == lo else lo
+                # The firmware only gives PWM 255 while |target - pos| >= 255 counts
+                # (pwm = clamp(|err|, 48, 255)), so the joint runs at no-load speed
+                # only in that part. Skip the first ~40 counts (acceleration) and
+                # fit while the remaining error is still >= PWM_SAT counts. A fit
+                # over the whole travel underestimates the speed about 2x.
+                sel = [(t, p) for t, p in log
+                       if abs(p - start) >= 40 and abs(tgt - p) >= args.pwm_sat]
+                if len(sel) < 4:
+                    print(f"  第 {rep + 1} 次 → {tgt}: 样本太少（{len(log)} 个），"
+                          f"终点读数 {ps[-1] if ps else None}，加大 --window 或检查是否卡住")
+                    continue
+                tt = [t for t, _ in sel]
+                pp = [p for _, p in sel]
+                n = len(tt)
+                mt, mp = sum(tt) / n, sum(pp) / n
+                slope = sum((a - mt) * (b - mp) for a, b in zip(tt, pp)) / sum((a - mt) ** 2 for a in tt)
+                w = abs(slope) * k
+                speeds.append(w)
+                print(f"  第 {rep + 1} 次 → {tgt}: {math.degrees(w):6.1f} °/s = {w:4.2f} rad/s  ({n} 个点)")
+    finally:
+        bus.relax(sid)
+    if speeds:
+        w = sum(speeds) / len(speeds)
+        print(f"\n实测全速 ≈ {w:.2f} rad/s = {math.degrees(w):.0f} °/s = {math.radians(60) / w:.3f} s/60°")
+        # The reading is below the motor's no-load speed (joint friction/damping,
+        # inertia over a finite stroke). Map it back with the same test run on
+        # the sim model (sim_robot.py, current firmware, left knee, ADC 234↔848):
+        #   model no_load 2/3/4/6/8/10 rad/s  →  this test reads 1.73/2.46/3.11/4.21/5.09/5.78
+        table = [(1.73, 2.0), (2.46, 3.0), (3.11, 4.0), (4.21, 6.0), (5.09, 8.0), (5.78, 10.0)]
+        if w <= table[0][0]:
+            w_model = w * table[0][1] / table[0][0]
+        elif w >= table[-1][0]:
+            w_model = table[-1][1] + (w - table[-1][0]) * 2.9   # last segment slope, rough
+            print("  （超出标定表，仿真参数是外推的）")
+        else:
+            for (a, wa), (b, wb) in zip(table, table[1:]):
+                if a <= w <= b:
+                    w_model = wa + (w - a) / (b - a) * (wb - wa)
+                    break
+        print(f"→ 仿真模型参数 no_load_speed ≈ {w_model:.1f} rad/s"
+              f"（训练时 JDUCK_NOLOAD={w_model:.1f}；URDF 现在是 3.0）")
+        print("  表是用左膝、当前固件、ADC 234↔848 标的；其它关节/行程会有偏差。")
+
+
 # ---------------------------------------------------------------- main
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -328,6 +405,14 @@ def main() -> None:
     s.add_argument("names", nargs="*", choices=JOINTS + [], metavar="joint")
     sub.add_parser("report", help="打印标定结果和对应的 URDF 范围")
     sub.add_parser("apply", help="把标定范围写进 URDF")
+    s = sub.add_parser("speed-test", help="测空载转速（大幅全速往返，关节必须能自由转）")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--lo", type=int, default=200, help="ADC 起点（要在该舵机的标定范围内）")
+    s.add_argument("--hi", type=int, default=800, help="ADC 终点；行程要 > 300 计数才有全速段")
+    s.add_argument("--pwm-sat", type=int, default=255,
+                   help="固件 PWM 饱和所需误差（计数）。当前固件 pwm=|err| → 255；改成 pwm=K|err|+FF 后填 (255-FF)/K")
+    s.add_argument("--reps", type=int, default=3)
+    s.add_argument("--window", type=float, default=2.0, help="每次运动记录多少秒")
     s = sub.add_parser("verify", help="上电小幅动一下，检查方向（先吊起来）")
     s.add_argument("name", choices=JOINTS)
     s.add_argument("--step-deg", type=float, default=5.0)
@@ -347,7 +432,7 @@ def main() -> None:
                  "检查：USB 是否插好（ls /dev/ttyUSB* /dev/ttyACM*）、用户是否在 dialout 组。")
     with bus:
         {"scan": cmd_scan, "monitor": cmd_monitor, "measure-k": cmd_measure_k,
-         "joint": cmd_joint, "verify": cmd_verify}[args.cmd](args, bus)
+         "joint": cmd_joint, "verify": cmd_verify, "speed-test": cmd_speed_test}[args.cmd](args, bus)
 
 
 if __name__ == "__main__":

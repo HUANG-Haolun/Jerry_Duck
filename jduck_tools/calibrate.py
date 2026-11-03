@@ -37,7 +37,7 @@ sys.path.insert(0, str(HERE))
 from calibration import (  # noqa: E402
     JOINTS, Calibration, JointCal, apply_to_urdf, load_servo_map, read_urdf_limits,
 )
-from servo_bus import CMD_HOLD, CMD_MOVE, ServoBus  # noqa: E402
+from servo_bus import CMD_MOVE, ServoBus  # noqa: E402
 
 DEFAULT_CAL = HERE / "calibration.yaml"
 DEFAULT_MAP = HERE / "servo_map.yaml"
@@ -66,6 +66,45 @@ def key_pressed() -> str | None:
 def status_line(text: str) -> None:
     sys.stdout.write("\r\033[K" + text)
     sys.stdout.flush()
+
+
+# ---------------------------------------------------------------- powered holding
+KEEPALIVE_S = 0.05   # well under the ubt12hc_pd firmware's 200 ms comm timeout
+
+
+def hold_target(bus: ServoBus, sid: int, target: int, seconds: float):
+    """Hold `target` for `seconds` by re-sending CMD 0x01; returns the last reply."""
+    r = None
+    t_end = time.monotonic() + seconds
+    while True:
+        r = bus.transact(sid, CMD_MOVE, target) or r
+        if time.monotonic() >= t_end:
+            return r
+        time.sleep(KEEPALIVE_S)
+
+
+class KeepAlive:
+    """Re-send CMD 0x01 to one servo from a thread while the main thread blocks
+    (e.g. on input()), so the firmware's comm timeout doesn't drop the joint."""
+
+    def __init__(self, bus: ServoBus, sid: int, target: int):
+        import threading
+
+        self.bus, self.sid, self.target = bus, sid, target
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        while not self.stop.wait(KEEPALIVE_S):
+            self.bus.transact(self.sid, CMD_MOVE, self.target)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.stop.set()
+        self.thread.join()
 
 
 # ---------------------------------------------------------------- subcommands
@@ -286,18 +325,21 @@ def cmd_verify(args, bus: ServoBus) -> None:
     if input("继续？[y/N] ").strip().lower() != "y":
         return
     try:
-        bus.transact(sid, CMD_HOLD)
         for label, dq in (("URDF 正方向", +1), ("回到起点", 0), ("URDF 负方向", -1), ("回到起点", 0)):
             target = round(start + c.sign * dq * step)
             target = max(lo_adc, min(hi_adc, target))
-            bus.transact(sid, CMD_MOVE, target)
-            time.sleep(args.dwell)
-            r = bus.transact(sid, CMD_HOLD)
+            # Keep re-sending the same MOVE while waiting. The ubt12hc_pd firmware
+            # relaxes after 200 ms without a command, and every reply gives the
+            # position. CMD 0x02 is not used for polling because it would replace
+            # the target with the current position.
+            r = hold_target(bus, sid, target, args.dwell)
             got = r.pos if r else None
             print(f"  {label:10s} 目标 ADC={target:4d}  实际 {got}  "
                   f"({math.degrees(c.to_rad(got, cal.k_rad_per_count)):+.1f}° URDF)" if got is not None
                   else f"  {label:10s} 无应答")
-            if input("  方向对吗？[Y/n] ").strip().lower() == "n":
+            with KeepAlive(bus, sid, target):
+                answer = input("  方向对吗？[Y/n] ").strip().lower()
+            if answer == "n":
                 print("  → 方向反了：重新标定这个关节（joint 子命令），注意第 2 步要往 URDF 正方向转。")
                 break
     finally:
@@ -305,11 +347,30 @@ def cmd_verify(args, bus: ServoBus) -> None:
         print("已卸力。")
 
 
+def _peak_slope(log, window_s: float) -> float:
+    """Largest |d pos / dt| (counts/s) from least-squares lines over sliding windows."""
+    best = 0.0
+    j = 0
+    for i in range(len(log)):
+        while log[j][0] < log[i][0] - window_s:
+            j += 1
+        seg = log[j:i + 1]
+        if len(seg) < 5 or seg[-1][0] - seg[0][0] < 0.6 * window_s:
+            continue
+        n = len(seg)
+        mt = sum(t for t, _ in seg) / n
+        mp = sum(p for _, p in seg) / n
+        den = sum((t - mt) ** 2 for t, _ in seg)
+        if den > 0:
+            best = max(best, abs(sum((t - mt) * (p - mp) for t, p in seg) / den))
+    return best
+
+
 def cmd_speed_test(args, bus: ServoBus) -> None:
-    """No-load speed: big step targets (firmware saturates at PWM 255 when
-    |err| >= 255 counts), poll the position, and fit the slope
-    of the constant-speed middle part. The joint must be free to swing (robot hung
-    up, or the servo on the bench without load)."""
+    """Peak speed under a big step: poll the position by re-sending CMD 0x01 and
+    take the steepest sliding-window fit. The joint must be free to swing (robot
+    hung up, or the servo on the bench without load). Choose lo/hi ~30 counts
+    inside the calibrated range so the joint doesn't hit its stop."""
     k = math.radians(360.0 / 1024)
     sid = args.id
     r = bus.relax(sid)
@@ -323,8 +384,7 @@ def cmd_speed_test(args, bus: ServoBus) -> None:
         return
     speeds = []
     try:
-        bus.transact(sid, CMD_MOVE, lo)
-        time.sleep(1.5)
+        hold_target(bus, sid, lo, 1.5)       # keep-alive while moving to the start
         for rep in range(args.reps):
             for tgt in (hi, lo):
                 bus.transact(sid, CMD_MOVE, tgt)
@@ -337,24 +397,17 @@ def cmd_speed_test(args, bus: ServoBus) -> None:
                     if rr is not None:
                         log.append((time.monotonic() - t0, rr.pos))
                 ps = [p for t, p in log]
-                start = hi if tgt == lo else lo
-                # The firmware only gives PWM 255 while |target - pos| >= 255 counts
-                # (pwm = clamp(|err|, 48, 255)), so the joint runs at no-load speed
-                # only in that part. Skip the first ~40 counts (acceleration) and
-                # fit while the remaining error is still >= PWM_SAT counts. A fit
-                # over the whole travel underestimates the speed about 2x.
-                sel = [(t, p) for t, p in log
-                       if abs(p - start) >= 40 and abs(tgt - p) >= args.pwm_sat]
-                if len(sel) < 4:
+                # Peak speed = the steepest line fitted over any 30 ms window.
+                # This doesn't depend on which firmware law is running or on when
+                # PWM saturates (the old whole-travel / pwm-sat fits under-read
+                # ~2x on the stock law and also picked up the braking at the end),
+                # and the window averages out the ±1-count ADC quantization.
+                w = _peak_slope(log, args.fit_window) * k
+                if w <= 0:
                     print(f"  第 {rep + 1} 次 → {tgt}: 样本太少（{len(log)} 个），"
                           f"终点读数 {ps[-1] if ps else None}，加大 --window 或检查是否卡住")
                     continue
-                tt = [t for t, _ in sel]
-                pp = [p for _, p in sel]
-                n = len(tt)
-                mt, mp = sum(tt) / n, sum(pp) / n
-                slope = sum((a - mt) * (b - mp) for a, b in zip(tt, pp)) / sum((a - mt) ** 2 for a in tt)
-                w = abs(slope) * k
+                n = len(log)
                 speeds.append(w)
                 print(f"  第 {rep + 1} 次 → {tgt}: {math.degrees(w):6.1f} °/s = {w:4.2f} rad/s  ({n} 个点)")
     finally:
@@ -362,15 +415,16 @@ def cmd_speed_test(args, bus: ServoBus) -> None:
     if speeds:
         w = sum(speeds) / len(speeds)
         print(f"\n实测全速 ≈ {w:.2f} rad/s = {math.degrees(w):.0f} °/s = {math.radians(60) / w:.3f} s/60°")
-        # The reading is below the motor's no-load speed (joint friction/damping,
-        # inertia over a finite stroke). Map it back with the same test run on
-        # the sim model (sim_robot.py, current firmware, left knee, ADC 234↔848):
-        #   model no_load 2/3/4/6/8/10 rad/s  →  this test reads 1.73/2.46/3.11/4.21/5.09/5.78
-        table = [(1.73, 2.0), (2.46, 3.0), (3.11, 4.0), (4.21, 6.0), (5.09, 8.0), (5.78, 10.0)]
+        # The reading is below the motor's no-load speed because of joint
+        # friction/damping and inertia. Map it back with the same test run on the
+        # sim model (sim_robot.py, left knee, ADC 264↔818, peak 30 ms fit; identical
+        # for the stock and the ubt12hc_pd firmware):
+        #   model no_load 2/3/4/4.8/6/8/10 rad/s → reads 1.76/2.53/3.22/3.63/4.29/5.23/6.14
+        table = [(1.76, 2.0), (2.53, 3.0), (3.22, 4.0), (3.63, 4.8), (4.29, 6.0), (5.23, 8.0), (6.14, 10.0)]
         if w <= table[0][0]:
             w_model = w * table[0][1] / table[0][0]
         elif w >= table[-1][0]:
-            w_model = table[-1][1] + (w - table[-1][0]) * 2.9   # last segment slope, rough
+            w_model = table[-1][1] + (w - table[-1][0]) * (table[-1][1] - table[-2][1]) / (table[-1][0] - table[-2][0])
             print("  （超出标定表，仿真参数是外推的）")
         else:
             for (a, wa), (b, wb) in zip(table, table[1:]):
@@ -378,8 +432,8 @@ def cmd_speed_test(args, bus: ServoBus) -> None:
                     w_model = wa + (w - a) / (b - a) * (wb - wa)
                     break
         print(f"→ 仿真模型参数 no_load_speed ≈ {w_model:.1f} rad/s"
-              f"（训练时 JDUCK_NOLOAD={w_model:.1f}；URDF 现在是 3.0）")
-        print("  表是用左膝、当前固件、ADC 234↔848 标的；其它关节/行程会有偏差。")
+              f"（训练时 JDUCK_NOLOAD={w_model:.1f}；URDF 现在是 3.0，官方规格 7.4 V ≈ 4.8）")
+        print("  表是用左膝、ADC 264↔818 标的；其它关节/行程会有偏差。")
 
 
 # ---------------------------------------------------------------- main
@@ -407,10 +461,9 @@ def main() -> None:
     sub.add_parser("apply", help="把标定范围写进 URDF")
     s = sub.add_parser("speed-test", help="测空载转速（大幅全速往返，关节必须能自由转）")
     s.add_argument("--id", type=int, required=True)
-    s.add_argument("--lo", type=int, default=200, help="ADC 起点（要在该舵机的标定范围内）")
-    s.add_argument("--hi", type=int, default=800, help="ADC 终点；行程要 > 300 计数才有全速段")
-    s.add_argument("--pwm-sat", type=int, default=255,
-                   help="固件 PWM 饱和所需误差（计数）。当前固件 pwm=|err| → 255；改成 pwm=K|err|+FF 后填 (255-FF)/K")
+    s.add_argument("--lo", type=int, default=264, help="ADC 起点（要在该舵机的标定范围内）")
+    s.add_argument("--hi", type=int, default=818, help="ADC 终点（默认 = 左膝标定范围内缩 30 计数）")
+    s.add_argument("--fit-window", type=float, default=0.03, help="求峰值速度的滑动拟合窗口（秒）")
     s.add_argument("--reps", type=int, default=3)
     s.add_argument("--window", type=float, default=2.0, help="每次运动记录多少秒")
     s = sub.add_parser("verify", help="上电小幅动一下，检查方向（先吊起来）")

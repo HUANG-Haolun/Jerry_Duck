@@ -31,8 +31,12 @@ SCENE = HERE.parent / "jduck_mjcf" / "scene_walk.xml"
 
 
 class SimRobot:
+    # Firmware laws: pwm = clamp(K*|err| + FF, floor, 255), 0 if |err| <= DB.
+    FW_ORIG = dict(K=1, FF=0, floor=48, DB=2, timeout_ms=0)        # send_rev_230400_ult.ino
+    FW_PD = dict(K=16, FF=15, floor=0, DB=1, timeout_ms=200)       # firmware/ubt12hc_pd
+
     def __init__(self, cal: Calibration, servo_map: dict[str, int], home_q: np.ndarray,
-                 stall=0.8, no_load=3.0, seed=0):
+                 stall=0.8, no_load=3.0, seed=0, fw=None):
         self.m = mujoco.MjModel.from_xml_path(str(SCENE))
         self.m.opt.timestep = 0.001                     # = firmware rate
         self.d = mujoco.MjData(self.m)
@@ -42,7 +46,9 @@ class SimRobot:
         self.cal = [cal.joints[j] for j in JOINTS]
         self.by_id = {servo_map[j]: i for i, j in enumerate(JOINTS)}
         self.stall, self.no_load = stall, no_load
+        self.fw = dict(fw or self.FW_ORIG)
         n = len(JOINTS)
+        self.last_cmd_t = np.zeros(n)
         self.enabled = np.zeros(n, bool)
         self.target_adc = np.zeros(n)
         self.prev_cmd = np.zeros(n, int)
@@ -62,13 +68,17 @@ class SimRobot:
     def step(self, seconds: float) -> None:
         for _ in range(max(1, int(round(seconds / self.m.opt.timestep)))):
             tau = np.zeros(len(JOINTS))
+            fw = self.fw
             for i in range(len(JOINTS)):
+                if fw["timeout_ms"] and self.enabled[i] and \
+                        (self.d.time - self.last_cmd_t[i]) * 1000 > fw["timeout_ms"]:
+                    self.enabled[i] = False                # firmware comm timeout → relax
                 if not self.enabled[i]:
                     continue
                 err = self.target_adc[i] - self.adc(i)     # firmware: target - current (ADC)
-                if abs(err) <= 2:
+                if abs(err) <= fw["DB"]:
                     continue
-                pwm = min(255, max(48, abs(err)))
+                pwm = min(255, max(fw["floor"], fw["K"] * abs(err) + fw["FF"]))
                 # ADC→rad sign: q = sign*(adc-zero)*k, so +ADC error is sign*+q
                 duty = math.copysign(pwm / 255, err) * self.cal[i].sign
                 qd = self.d.qvel[self.va[i]]
@@ -82,6 +92,7 @@ class SimRobot:
         if i is None:
             return None
         cur = self.adc(i)
+        self.last_cmd_t[i] = self.d.time
         if cmd == CMD_MOVE:
             self.target_adc[i] = min(950, max(50, pos))
             self.enabled[i] = True

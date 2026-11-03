@@ -44,7 +44,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from calibration import JOINTS, Calibration, load_servo_map  # noqa: E402
-from servo_bus import CMD_HOLD, CMD_MOVE, ServoBus  # noqa: E402
+from servo_bus import CMD_MOVE, ServoBus  # noqa: E402
 
 CONTROL_DT = 0.02
 CMD_DIM = 13
@@ -115,10 +115,6 @@ class Joints:
                 return None
             q[i] = self._to_q(i, r.pos)
         return q
-
-    def hold(self) -> None:
-        for sid in self.ids:
-            self.bus.transact(sid, CMD_HOLD)
 
     def relax_all(self) -> None:
         for _ in range(2):

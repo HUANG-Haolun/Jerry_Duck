@@ -4,27 +4,47 @@
 
 ## 改了什么
 
-除了注释，实际代码只改了两处：
-
 | | 原版 | 修改版 |
 |---|---|---|
 | 控制律 | `pwm = clamp(|err|, 48, 255)`，`|err| ≤ 2` 停 | `pwm = 16·|err| + 15`，上限 255，`|err| ≤ 1` 停 |
 | 误差 10 计数（3.5°）时 | PWM 48（误差 1°~17° 一律 48） | PWM 175 |
 | 通信超时 | 无（主控死机 → 舵机一直追最后目标） | 200 ms 没收到本 ID 的命令 → 失力（同 CMD 03） |
+| 参数 | 写死在代码里 | **运行时可调，存 EEPROM**（新增 CMD 0x10/0x11/0x12） |
 
-参数在文件开头，三个 `#define`：
+## 调参数：不用重新烧录
 
-```c
-#define KP_PWM   16     // 比例刚度，PWM/计数
-#define FF_PWM   15     // 静摩擦前馈
-#define DEADBAND 1      // 死区，计数
-#define COMM_TIMEOUT_MS 200UL   // 0 = 关闭
+4 个参数（KP / FF / DEADBAND / 超时）可以直接通过总线改：
+
+```bash
+python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 get --all                    # 看全部舵机当前参数
+python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --id 9 --kp 12           # 只改 RAM，立即生效，断电丢失
+python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --id 9 --kp 12 --save    # 同时存 EEPROM
+python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --all --kp 16 --ff 15 --db 1 --save
 ```
+
+| 参数 | 默认 | 范围 | 含义 |
+|---|---|---|---|
+| `--kp` | 16 | 1–64 | 比例刚度，PWM / ADC 计数（原版相当于 1） |
+| `--ff` | 15 | 0–120 | 静摩擦前馈，误差超出死区就加上 |
+| `--db` | 1 | 0–10 | 死区，计数（1 计数 ≈ 0.35°） |
+| `--timeout` | 20 | 0–255 | 通信超时，单位 10 ms（20 = 200 ms，0 = 关闭） |
+
+上电时从 EEPROM 读；EEPROM 没存过、校验不对、或数值超出上面的范围，就用默认值（代码开头的 `DEFAULT_*`）。
+
+命令格式（帧格式和原来一样 `FA AF ID CMD PosH PosL SUM ED`）：
+
+| CMD | PosH | PosL | 回复的 Speed 字段 |
+|---|---|---|---|
+| `0x10` 设参数 | 参数号（0=KP 1=FF 2=DB 3=超时） | 值 | 设后的值 |
+| `0x11` 读参数 | 参数号 | — | 参数值 |
+| `0x12` 存 EEPROM | `0xA5` | `0x5A`（防误写） | 0 |
+
+参数号非法或 0x12 校验字节不对时，Speed = -1，什么都不改。这三条命令不改变力矩状态，但会刷新通信超时计时。
 
 参数来源：仿真里按固件 1 kHz 复刻这条控制律（`microduck_rl/.../actuator/ubt12hc.py`，`JDUCK_FW=16,15,1`），
 用官方规格（7.4 V：4.8 rad/s、0.96 N·m）训练，3 个种子里 2 个在 400 迭代内学会迈步；原版控制律 4000 迭代都不迈步。
 
-验证情况：控制律和超时逻辑已在 PC 上用 gcc 单独编译测试（PWM 计算与仿真执行器逐项一致，含方向、溢出、`millis()` 溢出），
+验证情况：控制律、超时、参数命令、EEPROM 读写已在 PC 上用 gcc 单独编译测试（PWM 计算与仿真执行器逐项一致，含方向、溢出、`millis()` 溢出；EEPROM 校验错误/超范围时回退默认值），
 **但没有在 ATmega8 上编译、也没有上过硬件**。
 
 ## 烧录（每个舵机一个 ID，要逐个烧）
@@ -59,16 +79,17 @@ python3 firmware/ubt12hc_pd/make_id_variants.py
    - **到位精度**：`verify` 里实际值和目标差 ≤ 2 计数
    - **有没有抖/嗡嗡响**：上电保持时听一下、摸一下
    - **超时**：上电后停止发命令（Ctrl+C 退出程序），约 0.2 s 后应自动松掉
-2. 有问题按下表调，改完重新生成 + 烧这一个：
+2. 有问题按下表用 `servo_params.py set` 调（**不用重新烧录**），调好了加 `--save`：
 
    | 现象 | 调整 |
    |---|---|
-   | 目标附近来回抖、嗡嗡响 | `KP_PWM` 降到 12；还抖就 `DEADBAND` 改 2 |
-   | 停在离目标几个计数处不动 | `FF_PWM` 加到 20~25 |
-   | 带负载（站立）时下沉很多 | `KP_PWM` 加到 20 |
+   | 目标附近来回抖、嗡嗡响 | `--kp 12`；还抖就 `--db 2` |
+   | 停在离目标几个计数处不动 | `--ff 20` ~ `--ff 25` |
+   | 带负载（站立）时下沉很多 | `--kp 20` |
 
    **改了参数要告诉 Claude**，仿真里要用同样的 `JDUCK_FW=K,FF,DB` 重新训练，否则仿真和真机不一致。
 3. 一个舵机没问题了，再烧其余 14 个，**每烧一个就贴好 ID**，最后 `scan` 确认 15 个都应答。
+   如果第 2 步调过参数，烧完用 `servo_params.py set --all ... --save` 一次性统一设好。
 
 ## 注意
 

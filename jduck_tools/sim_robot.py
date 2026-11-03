@@ -33,7 +33,7 @@ SCENE = HERE.parent / "jduck_mjcf" / "scene_walk.xml"
 class SimRobot:
     # Firmware laws: pwm = clamp(K*|err| + FF, floor, 255), 0 if |err| <= DB.
     FW_ORIG = dict(K=1, FF=0, floor=48, DB=2, timeout_ms=0)        # send_rev_230400_ult.ino
-    FW_PD = dict(K=16, FF=15, floor=0, DB=1, timeout_ms=200)       # firmware/ubt12hc_pd
+    FW_PD = dict(K=16, FF=15, floor=0, DB=1, timeout_ms=200, params=True)  # firmware/ubt12hc_pd
 
     def __init__(self, cal: Calibration, servo_map: dict[str, int], home_q: np.ndarray,
                  stall=0.8, no_load=3.0, seed=0, fw=None):
@@ -93,6 +93,22 @@ class SimRobot:
             return None
         cur = self.adc(i)
         self.last_cmd_t[i] = self.d.time
+        if cmd in (0x10, 0x11, 0x12):                 # ubt12hc_pd parameter commands
+            if not self.fw.get("params"):
+                return None                           # stock firmware: no such command
+            idx, val = pos >> 8, pos & 0xFF
+            keys = ("K", "FF", "DB", "timeout_10ms")
+            reply = -1
+            if cmd == 0x10 and idx < 4:
+                self.fw[keys[idx]] = val
+                if keys[idx] == "timeout_10ms":
+                    self.fw["timeout_ms"] = val * 10
+                reply = val
+            elif cmd == 0x11 and idx < 4:
+                reply = int(self.fw[keys[idx]]) if keys[idx] != "timeout_10ms" else self.fw["timeout_ms"] // 10
+            elif cmd == 0x12 and idx == 0xA5 and val == 0x5A:
+                reply = 0
+            return Reply(sid, cur, reply)
         if cmd == CMD_MOVE:
             self.target_adc[i] = min(950, max(50, pos))
             self.enabled[i] = True

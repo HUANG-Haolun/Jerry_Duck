@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 
 // ============================================================
 // ATmega8 + 14.7456 MHz
@@ -21,24 +22,27 @@
 // 速度计算：固定 40 ms
 //
 // ------------------------------------------------------------
-// 修改版（ubt12hc_pd）相对 send_rev_230400_ult.ino 的改动，只改了这两处：
+// 修改版（ubt12hc_pd）相对 send_rev_230400_ult.ino 的改动：
 //
 // 1. 控制律（pid_update）
 //    原来：pwm = clamp(|err|, 48, 255)，|err| <= 2 停转
 //          → 误差 1°~17° 一律固定 48（开关式），关节最快 ~32°/s
 //    现在：pwm = KP_PWM * |err| + FF_PWM，上限 255，|err| <= DEADBAND 停转
-//          KP_PWM = 16, FF_PWM = 15, DEADBAND = 1
+//          默认 KP_PWM = 16, FF_PWM = 15, DEADBAND = 1
 //          → 比例刚度提高 16 倍，误差 ~15 计数（~5°）就能给满 PWM
 //    参数来自仿真（rl_control/jduck_tools/screen_fw_law.py 与
 //    Mjlab-Velocity-Flat-JDuck 训练，JDUCK_FW=16,15,1）。
 //
 // 2. 通信超时保护
-//    超过 COMM_TIMEOUT_MS 没收到发给本 ID 的合法命令 → 自动失力，
-//    防止主控死机时舵机一直追最后一个目标。
-//    设为 0 可关闭（台架调试时用）。
+//    超过 TIMEOUT_10MS × 10 ms（默认 200 ms）没收到发给本 ID 的合法命令
+//    → 自动失力，防止主控死机时舵机一直追最后一个目标。0 = 关闭。
 //
-// 协议、帧格式、ID、波特率、方向引脚、速度计算全部不变，
-// 主控端（jduck_tools/servo_bus.py）不需要改。
+// 3. 参数运行时可调 + 存 EEPROM（新增 CMD 0x10 / 0x11 / 0x12）
+//    KP_PWM / FF_PWM / DEADBAND / TIMEOUT_10MS 可以通过总线改，不用重新烧录。
+//    上电时从 EEPROM 读，没存过就用默认值。
+//
+// 原有 CMD 0x01/0x02/0x03、帧格式、ID、波特率、方向引脚、速度计算全部不变，
+// 主控端（jduck_tools/servo_bus.py）不需要改；参数命令见 jduck_tools/servo_params.py。
 // ============================================================
 
 #define F_CPU 14745600UL
@@ -141,14 +145,50 @@ float Kd = 0.0f;
 // 出厂前先拿一个舵机上台架：
 //   - 若目标附近来回抖（嗡嗡响），先把 KP_PWM 降到 12，再不行加大 DEADBAND 到 2
 //   - 若停在离目标几个计数处不动，把 FF_PWM 加到 20~25
+//
+// 这四个参数**运行时可调**（CMD 0x10/0x11/0x12，见下面"参数命令"），
+// 上电时从 EEPROM 读；EEPROM 里没有合法数据时用这里的默认值。
 // ------------------------------------------------------------
-#define KP_PWM   16
-#define FF_PWM   15
-#define DEADBAND 1
+#define DEFAULT_KP_PWM        16
+#define DEFAULT_FF_PWM        15
+#define DEFAULT_DEADBAND      1
+// 通信超时，单位 10 ms：超过这么久没收到发给本 ID 的合法命令就自动失力。0 = 关闭。
+// 主控 50 Hz 每 20 ms 发一次，20（= 200 ms）相当于连续丢 10 帧。
+#define DEFAULT_TIMEOUT_10MS  20
 
-// 通信超时（毫秒）：超过这么久没收到发给本 ID 的合法命令就自动失力。0 = 关闭。
-// 主控 50 Hz 每 20 ms 发一次，200 ms 相当于连续丢 10 帧。
-#define COMM_TIMEOUT_MS 200UL
+uint8_t KP_PWM       = DEFAULT_KP_PWM;
+uint8_t FF_PWM       = DEFAULT_FF_PWM;
+uint8_t DEADBAND     = DEFAULT_DEADBAND;
+uint8_t TIMEOUT_10MS = DEFAULT_TIMEOUT_10MS;
+
+
+// ------------------------------------------------------------
+// 参数命令（帧格式不变：FA AF ID CMD PosH PosL SUM ED）
+//
+// CMD 0x10 设参数：PosH = 参数号，PosL = 值（0~255）。只改 RAM，立即生效。
+// CMD 0x11 读参数：PosH = 参数号。回复帧的 Speed 字段 = 参数值（位置照常）。
+// CMD 0x12 存 EEPROM：PosH = 0xA5，PosL = 0x5A（防误写）。存当前 4 个参数。
+//
+// 参数号：0 = KP_PWM，1 = FF_PWM，2 = DEADBAND，3 = TIMEOUT_10MS
+// 参数号非法 / 0x12 校验字节不对：照常回复位置，Speed 字段 = -1，什么都不改。
+//
+// 这三条命令不改变力矩状态（不上力也不卸力），但会刷新通信超时计时。
+// ------------------------------------------------------------
+#define CMD_SET_PARAM   0x10
+#define CMD_GET_PARAM   0x11
+#define CMD_SAVE_PARAMS 0x12
+
+#define PARAM_KP       0
+#define PARAM_FF       1
+#define PARAM_DEADBAND 2
+#define PARAM_TIMEOUT  3
+#define PARAM_COUNT    4
+
+// EEPROM 布局：[0] = 魔数 0x5D，[1..4] = 4 个参数，[5] = 校验（参数和 ^ 0xFF）
+#define EE_ADDR_MAGIC 0
+#define EE_ADDR_PARAM 1
+#define EE_ADDR_SUM   (EE_ADDR_PARAM + PARAM_COUNT)
+#define EE_MAGIC      0x5D
 
 
 // ============================================================
@@ -861,6 +901,83 @@ void send_position_speed(
 
 
 // ============================================================
+// 修改版：运行时参数 + EEPROM
+// ============================================================
+
+uint8_t param_get(uint8_t idx)
+{
+    switch (idx)
+    {
+        case PARAM_KP:       return KP_PWM;
+        case PARAM_FF:       return FF_PWM;
+        case PARAM_DEADBAND: return DEADBAND;
+        case PARAM_TIMEOUT:  return TIMEOUT_10MS;
+        default:             return 0;
+    }
+}
+
+
+void param_set(uint8_t idx, uint8_t value)
+{
+    switch (idx)
+    {
+        case PARAM_KP:       KP_PWM = value;       break;
+        case PARAM_FF:       FF_PWM = value;       break;
+        case PARAM_DEADBAND: DEADBAND = value;     break;
+        case PARAM_TIMEOUT:  TIMEOUT_10MS = value; break;
+        default:                                   break;
+    }
+}
+
+
+uint8_t params_checksum(const uint8_t *p)
+{
+    uint8_t s = 0;
+    for (uint8_t i = 0; i < PARAM_COUNT; i++)
+        s += p[i];
+    return s ^ 0xFF;
+}
+
+
+// 上电时调用。EEPROM 魔数/校验不对，或数值超出合理范围 → 保持默认值。
+void params_load()
+{
+    if (eeprom_read_byte((const uint8_t *)EE_ADDR_MAGIC) != EE_MAGIC)
+        return;
+
+    uint8_t p[PARAM_COUNT];
+    for (uint8_t i = 0; i < PARAM_COUNT; i++)
+        p[i] = eeprom_read_byte((const uint8_t *)(EE_ADDR_PARAM + i));
+
+    if (eeprom_read_byte((const uint8_t *)EE_ADDR_SUM) != params_checksum(p))
+        return;
+
+    // 合理范围：KP 1..64，FF 0..120，DEADBAND 0..10，TIMEOUT 任意（0 = 关闭）
+    if (p[PARAM_KP] < 1 || p[PARAM_KP] > 64 ||
+        p[PARAM_FF] > 120 ||
+        p[PARAM_DEADBAND] > 10)
+        return;
+
+    for (uint8_t i = 0; i < PARAM_COUNT; i++)
+        param_set(i, p[i]);
+}
+
+
+void params_save()
+{
+    uint8_t p[PARAM_COUNT];
+    for (uint8_t i = 0; i < PARAM_COUNT; i++)
+        p[i] = param_get(i);
+
+    // eeprom_update_byte 只写变化了的字节（EEPROM 约 10 万次擦写寿命）
+    for (uint8_t i = 0; i < PARAM_COUNT; i++)
+        eeprom_update_byte((uint8_t *)(EE_ADDR_PARAM + i), p[i]);
+    eeprom_update_byte((uint8_t *)EE_ADDR_SUM, params_checksum(p));
+    eeprom_update_byte((uint8_t *)EE_ADDR_MAGIC, EE_MAGIC);
+}
+
+
+// ============================================================
 // 收到合法指令
 //
 // 注意：
@@ -885,12 +1002,47 @@ void process_command(
     // -----------------------------------------
     if (cmd != CMD_POSITION &&
         cmd != CMD_HOLD_CURRENT &&
-        cmd != CMD_TORQUE_OFF)
+        cmd != CMD_TORQUE_OFF &&
+        cmd != CMD_SET_PARAM &&
+        cmd != CMD_GET_PARAM &&
+        cmd != CMD_SAVE_PARAMS)
         return;
 
 
     // 修改版：记录最后一次收到合法命令的时间（通信超时保护用）
     last_command_ms = millis();
+
+
+    // -----------------------------------------
+    // 修改版：参数命令。不改力矩状态、不改 previous_command
+    // （否则紧跟的 CMD 0x02 会把目标重置成当前位置）。
+    // -----------------------------------------
+
+    if (cmd == CMD_SET_PARAM ||
+        cmd == CMD_GET_PARAM ||
+        cmd == CMD_SAVE_PARAMS)
+    {
+        int16_t reply = -1;   // -1 = 参数号非法 / 校验字节不对
+
+        if (cmd == CMD_SET_PARAM && posH < PARAM_COUNT)
+        {
+            param_set(posH, posL);
+            reply = param_get(posH);
+        }
+        else if (cmd == CMD_GET_PARAM && posH < PARAM_COUNT)
+        {
+            reply = param_get(posH);
+        }
+        else if (cmd == CMD_SAVE_PARAMS && posH == 0xA5 && posL == 0x5A)
+        {
+            params_save();
+            reply = 0;
+        }
+
+        current_position = adc_read();
+        send_position_speed(current_position, reply);
+        return;
+    }
 
 
     // -----------------------------------------
@@ -1115,6 +1267,13 @@ void setup()
 
 
     // -----------------------------------------
+    // 修改版：从 EEPROM 读控制参数（没有合法数据就用默认值）
+    // -----------------------------------------
+
+    params_load();
+
+
+    // -----------------------------------------
     // UART
     // -----------------------------------------
 
@@ -1190,9 +1349,8 @@ void loop()
     // 只在已上力时检查；unsigned 减法跨 millis() 溢出也正确。
     // ========================================================
 
-#if COMM_TIMEOUT_MS > 0
-    if (torque_enabled &&
-        (unsigned long)(millis() - last_command_ms) > COMM_TIMEOUT_MS)
+    if (TIMEOUT_10MS > 0 && torque_enabled &&
+        (unsigned long)(millis() - last_command_ms) > (unsigned long)TIMEOUT_10MS * 10UL)
     {
         target_position = adc_read();
         torque_enabled = false;
@@ -1200,7 +1358,6 @@ void loop()
         digitalWrite(MOTOR_SLEEP_PIN, LOW);
         previous_command = CMD_TORQUE_OFF;
     }
-#endif
 
 
     // ========================================================

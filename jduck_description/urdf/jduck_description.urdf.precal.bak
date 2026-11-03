@@ -1,0 +1,970 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="jduck_description">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.027527 5.0941E-05 0.014574"
+        rpy="0 0 0" />
+      <mass
+        value="0.327" />
+      <inertia
+        ixx="0.000118101"
+        ixy="8.88257e-08"
+        ixz="1.69745e-06"
+        iyy="0.000114064"
+        iyz="-2.23639e-07"
+        izz="0.000187543" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.89804 0.91765 0.92941 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="left_hip_yaw_link">
+    <inertial>
+      <origin
+        xyz="0.00058876 0.030953 0.020112"
+        rpy="0 0 0" />
+      <mass
+        value="0.065" />
+      <inertia
+        ixx="1.42222e-05"
+        ixy="-3.60069e-12"
+        ixz="3.93069e-07"
+        iyy="1.59509e-05"
+        iyz="2.14008e-12"
+        izz="7.37962e-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_hip_yaw_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_hip_yaw_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_hip_yaw_joint"
+    type="revolute">
+    <origin
+      xyz="0.012087 0.0284 -0.0049"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="left_hip_yaw_link" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-2.2"
+      upper="0.35"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="left_hip_roll_link">
+    <inertial>
+      <origin
+        xyz="-0.01765 -4.1633E-17 -0.02145"
+        rpy="0 0 0" />
+      <mass
+        value="0.015" />
+      <inertia
+        ixx="3.40181e-06"
+        ixy="-3.71065e-18"
+        ixz="-6.87427e-22"
+        iyy="3.40181e-06"
+        iyz="1.09e-22"
+        izz="4.16485e-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_hip_roll_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_hip_roll_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_hip_roll_joint"
+    type="revolute">
+    <origin
+      xyz="0.0188 0.03675 0.00955"
+      rpy="0 0 0" />
+    <parent
+      link="left_hip_yaw_link" />
+    <child
+      link="left_hip_roll_link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-2.0801"
+      upper="0.5154"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="left_hip_pitch_link">
+    <inertial>
+      <origin
+        xyz="-0.02817 0.018033 -0.0057621"
+        rpy="0 0 0" />
+      <mass
+        value="0.107" />
+      <inertia
+        ixx="1.83977e-05"
+        ixy="4.19795e-07"
+        ixz="-6.47828e-07"
+        iyy="2.41754e-05"
+        iyz="-4.19777e-07"
+        izz="2.0198e-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_hip_pitch_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_hip_pitch_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_hip_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="-0.01765 -0.01765 -0.0429"
+      rpy="0 0 0" />
+    <parent
+      link="left_hip_roll_link" />
+    <child
+      link="left_hip_pitch_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.4"
+      upper="0.43"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="left_knee_link">
+    <inertial>
+      <origin
+        xyz="3.1271E-09 0.016995 -0.040007"
+        rpy="0 0 0" />
+      <mass
+        value="0.063" />
+      <inertia
+        ixx="1.50585e-05"
+        ixy="3.59313e-12"
+        ixz="2.17387e-12"
+        iyy="1.12651e-05"
+        iyz="-3.99275e-07"
+        izz="9.10066e-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_knee_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_knee_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_knee_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0453 0 -0.02255"
+      rpy="0 0 0" />
+    <parent
+      link="left_hip_pitch_link" />
+    <child
+      link="left_knee_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-1.48"
+      upper="1.9"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="left_ankle_link">
+    <inertial>
+      <origin
+        xyz="0.01843 0.0179 -0.016404"
+        rpy="0 0 0" />
+      <mass
+        value="0.025" />
+      <inertia
+        ixx="7.27714e-06"
+        ixy="5.45479e-10"
+        ixz="7.3055e-07"
+        iyy="1.8447e-05"
+        iyz="-2.61421e-11"
+        izz="2.29371e-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_ankle_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/left_ankle_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_ankle_joint"
+    type="revolute">
+    <origin
+      xyz="0 -0.0012 -0.0592"
+      rpy="0 0 0" />
+    <parent
+      link="left_knee_link" />
+    <child
+      link="left_ankle_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-1.46"
+      upper="1.7"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="neck_pitch_link">
+    <inertial>
+      <origin
+        xyz="7.2858E-17 0.01802 0.0342"
+        rpy="0 0 0" />
+      <mass
+        value="0.107" />
+      <inertia
+        ixx="2.36314e-05"
+        ixy="8.25118e-22"
+        ixz="4.6498e-12"
+        iyy="2.04964e-05"
+        iyz="3.74367e-24"
+        izz="1.15617e-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/neck_pitch_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/neck_pitch_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="neck_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0040629 -0.01765 0.04915"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="neck_pitch_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-1.534"
+      upper="1.75"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="head_pitch_link">
+    <inertial>
+      <origin
+        xyz="1.6385E-06 0.024904 0.052212"
+        rpy="0 0 0" />
+      <mass
+        value="0.08" />
+      <inertia
+        ixx="1.8872e-05"
+        ixy="-3.16174e-09"
+        ixz="8.69216e-10"
+        iyy="1.01275e-05"
+        iyz="1.24602e-07"
+        izz="1.97051e-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/head_pitch_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/head_pitch_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="head_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 0.0684"
+      rpy="0 0 0" />
+    <parent
+      link="neck_pitch_link" />
+    <child
+      link="head_pitch_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-1.63"
+      upper="1.6"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="head_yaw_link">
+    <inertial>
+      <origin
+        xyz="-0.030443 0.0078851 -0.012662"
+        rpy="0 0 0" />
+      <mass
+        value="0.072" />
+      <inertia
+        ixx="1.5815e-05"
+        ixy="1.05586e-06"
+        ixz="-1.0895e-06"
+        iyy="2.06788e-05"
+        iyz="7.93144e-07"
+        izz="2.81054e-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/head_yaw_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/head_yaw_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="head_yaw_joint"
+    type="revolute">
+    <origin
+      xyz="0 0.01765 0.07505"
+      rpy="0 0 0" />
+    <parent
+      link="head_pitch_link" />
+    <child
+      link="head_yaw_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-0.8468"
+      upper="0.675"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="head_roll_link">
+    <inertial>
+      <origin
+        xyz="0.075852 -0.0075149 0.0084797"
+        rpy="0 0 0" />
+      <mass
+        value="0.205" />
+      <inertia
+        ixx="0.000241003"
+        ixy="8.26416e-08"
+        ixz="-2.80308e-05"
+        iyy="0.000358662"
+        iyz="-1.43024e-06"
+        izz="0.000535956" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/head_roll_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/head_roll_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="head_roll_joint"
+    type="revolute">
+    <origin
+      xyz="-0.064 0 -0.0187"
+      rpy="0 0 0" />
+    <parent
+      link="head_yaw_link" />
+    <child
+      link="head_roll_link" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-0.3313"
+      upper="0.2884"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="mouth_link">
+    <inertial>
+      <origin
+        xyz="0.059311 0.051853 -0.014432"
+        rpy="0 0 0" />
+      <mass
+        value="0.024" />
+      <inertia
+        ixx="3.23524e-05"
+        ixy="1.45304e-06"
+        ixz="1.6799e-06"
+        iyy="1.53977e-05"
+        iyz="-3.52913e-07"
+        izz="4.65619e-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/mouth_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/mouth_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="mouth_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 -0.0508 -0.0039"
+      rpy="0 0 0" />
+    <parent
+      link="head_roll_link" />
+    <child
+      link="mouth_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0.4172"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="right_hip_yaw_link">
+    <inertial>
+      <origin
+        xyz="0.00058876 -0.030953 0.020112"
+        rpy="0 0 0" />
+      <mass
+        value="0.065" />
+      <inertia
+        ixx="1.42222e-05"
+        ixy="-3.60069e-12"
+        ixz="3.93069e-07"
+        iyy="1.59509e-05"
+        iyz="2.14008e-12"
+        izz="7.37962e-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_hip_yaw_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_hip_yaw_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_hip_yaw_joint"
+    type="revolute">
+    <origin
+      xyz="0.012087 -0.0284 -0.0049"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_hip_yaw_link" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.33"
+      upper="2"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="right_hip_roll_link">
+    <inertial>
+      <origin
+        xyz="-0.01765 5.2597E-15 -0.02145"
+        rpy="0 0 0" />
+      <mass
+        value="0.015" />
+      <inertia
+        ixx="3.40181e-06"
+        ixy="-3.71131e-18"
+        ixz="-1.704e-21"
+        iyy="3.40181e-06"
+        iyz="-7.46876e-22"
+        izz="4.16485e-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_hip_roll_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_hip_roll_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_hip_roll_joint"
+    type="revolute">
+    <origin
+      xyz="0.0188 -0.03675 0.00955"
+      rpy="0 0 0" />
+    <parent
+      link="right_hip_yaw_link" />
+    <child
+      link="right_hip_roll_link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-0.4418"
+      upper="2.07"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="right_hip_pitch_link">
+    <inertial>
+      <origin
+        xyz="-0.02817 -0.018033 -0.0057621"
+        rpy="0 0 0" />
+      <mass
+        value="0.107" />
+      <inertia
+        ixx="1.83977e-05"
+        ixy="-4.19777e-07"
+        ixz="-6.47828e-07"
+        iyy="2.41754e-05"
+        iyz="4.19795e-07"
+        izz="2.0198e-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_hip_pitch_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_hip_pitch_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_hip_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="-0.01765 0.01765 -0.0429"
+      rpy="0 0 0" />
+    <parent
+      link="right_hip_roll_link" />
+    <child
+      link="right_hip_pitch_link" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-0.42"
+      upper="3.4"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="right_knee_link">
+    <inertial>
+      <origin
+        xyz="-3.1271E-09 -0.016995 -0.040007"
+        rpy="0 0 0" />
+      <mass
+        value="0.063" />
+      <inertia
+        ixx="1.5046e-05"
+        ixy="3.59016e-12"
+        ixz="-2.17206e-12"
+        iyy="1.12557e-05"
+        iyz="3.98944e-07"
+        izz="9.09311e-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_knee_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_knee_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_knee_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0453 0 -0.02255"
+      rpy="0 0 0" />
+    <parent
+      link="right_hip_pitch_link" />
+    <child
+      link="right_knee_link" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-1.9"
+      upper="1.48"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="right_ankle_link">
+    <inertial>
+      <origin
+        xyz="0.01843 -0.0179 -0.016404"
+        rpy="0 0 0" />
+      <mass
+        value="0.025" />
+      <inertia
+        ixx="7.27714e-06"
+        ixy="5.45479e-10"
+        ixz="7.3055e-07"
+        iyy="1.8447e-05"
+        iyz="-2.61421e-11"
+        izz="2.29371e-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_ankle_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/right_ankle_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_ankle_joint"
+    type="revolute">
+    <origin
+      xyz="0 0.0012 -0.0592"
+      rpy="0 0 0" />
+    <parent
+      link="right_knee_link" />
+    <child
+      link="right_ankle_link" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-1.71"
+      upper="1.47"
+      effort="0.8"
+      velocity="3.0" />
+  </joint>
+  <link
+    name="IMU_link">
+    <inertial>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.001" />
+      <inertia
+        ixx="0"
+        ixy="0"
+        ixz="0"
+        iyy="0"
+        iyz="0"
+        izz="0" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/IMU_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://jduck_description/meshes/IMU_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="IMU_joint"
+    type="fixed">
+    <origin
+      xyz="-0.061163 0.0304 0.0261"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="IMU_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>

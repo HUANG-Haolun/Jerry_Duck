@@ -2,7 +2,7 @@
 # q_rad = sign * (adc - adc_zero) * k_rad_per_count   (URDF convention)
 # Re-calibrate a joint whenever its servo horn is removed/re-seated.
 k_rad_per_count: 0.006135923151542565
-margin_rad: 0.08726646259971647
+margin_rad: 0.03490658503988659
 joints:
   left_hip_yaw:
     id: 12

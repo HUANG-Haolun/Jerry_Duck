@@ -4,3 +4,6 @@ ros2_ws/install
 ros2_ws/log__pycache__/
 *.pyc
 firmware/*/build/
+# Claude Code conversation exports
+2026-*-command-message*.txt
+2026-*-urdf.txt

@@ -28,7 +28,7 @@
 //    原来：pwm = clamp(|err|, 48, 255)，|err| <= 2 停转
 //          → 误差 1°~17° 一律固定 48（开关式），关节最快 ~32°/s
 //    现在：pwm = KP_PWM * |err| + FF_PWM，上限 255，|err| <= DEADBAND 停转
-//          默认 KP_PWM = 16, FF_PWM = 15, DEADBAND = 1
+//          默认 KP_PWM = 16, FF_PWM = 15, DEADBAND = 2
 //          → 比例刚度提高 16 倍，误差 ~15 计数（~5°）就能给满 PWM
 //    参数来自仿真（rl_control/jduck_tools/screen_fw_law.py 与
 //    Mjlab-Velocity-Flat-JDuck 训练，JDUCK_FW=16,15,1）。
@@ -151,7 +151,7 @@ float Kd = 0.0f;
 // ------------------------------------------------------------
 #define DEFAULT_KP_PWM        16
 #define DEFAULT_FF_PWM        15
-#define DEFAULT_DEADBAND      1
+#define DEFAULT_DEADBAND      2
 // 通信超时，单位 10 ms：超过这么久没收到发给本 ID 的合法命令就自动失力。0 = 关闭。
 // 主控 50 Hz 每 20 ms 发一次，20（= 200 ms）相当于连续丢 10 帧。
 #define DEFAULT_TIMEOUT_10MS  20

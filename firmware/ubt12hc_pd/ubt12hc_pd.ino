@@ -28,10 +28,10 @@
 //    原来：pwm = clamp(|err|, 48, 255)，|err| <= 2 停转
 //          → 误差 1°~17° 一律固定 48（开关式），关节最快 ~32°/s
 //    现在：pwm = KP_PWM * |err| + FF_PWM，上限 255，|err| <= DEADBAND 停转
-//          默认 KP_PWM = 16, FF_PWM = 15, DEADBAND = 2
+//          默认 KP_PWM = 16, FF_PWM = 0, DEADBAND = 0（纯比例，像弹簧）
 //          → 比例刚度提高 16 倍，误差 ~15 计数（~5°）就能给满 PWM
-//    参数来自仿真（rl_control/jduck_tools/screen_fw_law.py 与
-//    Mjlab-Velocity-Flat-JDuck 训练，JDUCK_FW=16,15,1）。
+//    参数来自仿真：当前策略（r7/r8）用 JDUCK_FW=16,0,0 训练。
+//    同一个策略在 FF=8 时站立会抖（目标 1.3°/步）；FF≤4、DB≤1 基本不受影响。
 //
 // 2. 通信超时保护
 //    超过 TIMEOUT_10MS × 10 ms（默认 200 ms）没收到发给本 ID 的合法命令
@@ -142,16 +142,17 @@ float Kd = 0.0f;
 //          原版靠"最小 48"硬顶，这里改成和比例项平滑叠加。
 // DEADBAND 停转窗口（计数）。1 计数 ≈ 0.35°。
 //
-// 出厂前先拿一个舵机上台架：
-//   - 若目标附近来回抖（嗡嗡响），先把 KP_PWM 降到 12，再不行加大 DEADBAND 到 2
-//   - 若停在离目标几个计数处不动，把 FF_PWM 加到 20~25
+// 出厂前先拿一个舵机上台架（参数用 servo_params.py 改，不用重新烧录）：
+//   - 若目标附近来回抖（嗡嗡响），先把 DEADBAND 加到 1
+//   - 若停在离目标几个计数处不动，把 FF_PWM 加到 4
+//   - 超出这两步（DB≥2 或 FF≥8）要告诉 Claude 用同样参数重新训练策略
 //
 // 这四个参数**运行时可调**（CMD 0x10/0x11/0x12，见下面"参数命令"），
 // 上电时从 EEPROM 读；EEPROM 里没有合法数据时用这里的默认值。
 // ------------------------------------------------------------
 #define DEFAULT_KP_PWM        16
-#define DEFAULT_FF_PWM        15
-#define DEFAULT_DEADBAND      2
+#define DEFAULT_FF_PWM        0
+#define DEFAULT_DEADBAND      0
 // 通信超时，单位 10 ms：超过这么久没收到发给本 ID 的合法命令就自动失力。0 = 关闭。
 // 主控 50 Hz 每 20 ms 发一次，20（= 200 ms）相当于连续丢 10 帧。
 #define DEFAULT_TIMEOUT_10MS  20

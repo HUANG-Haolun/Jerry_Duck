@@ -17,19 +17,23 @@
 
 ```bash
 python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 get --all                    # 看全部舵机当前参数
-python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --id 9 --kp 12           # 只改 RAM，立即生效，断电丢失
-python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --id 9 --kp 12 --save    # 同时存 EEPROM
-python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --all --kp 16 --ff 15 --db 1 --save
+python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --id 9 --db 1            # 只改 RAM，立即生效，断电丢失
+python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --id 9 --db 1 --save     # 同时存 EEPROM
+python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --all --kp 16 --ff 0 --db 0 --save   # 全部恢复成训练用的值
 ```
 
 | 参数 | 默认 | 范围 | 含义 |
 |---|---|---|---|
 | `--kp` | 16 | 1–64 | 比例刚度，PWM / ADC 计数（原版相当于 1） |
-| `--ff` | 15 | 0–120 | 静摩擦前馈，误差超出死区就加上 |
-| `--db` | 2 | 0–10 | 死区，计数（1 计数 ≈ 0.35°） |
+| `--ff` | 0 | 0–120 | 静摩擦前馈，误差超出死区就加上 |
+| `--db` | 0 | 0–10 | 死区，计数（1 计数 ≈ 0.35°） |
 | `--timeout` | 20 | 0–255 | 通信超时，单位 10 ms（20 = 200 ms，0 = 关闭） |
 
 上电时从 EEPROM 读；EEPROM 没存过、校验不对、或数值超出上面的范围，就用默认值（代码开头的 `DEFAULT_*`）。
+**之前用 `--save` 存过参数的舵机会继续用 EEPROM 里的旧值**，烧了新固件也一样，要用上面最后一条命令重新设一次。
+
+默认值 K=16 FF=0 DB=0 与当前策略（r7/r8，`JDUCK_FW=16,0,0`）训练时一致。仿真里同一个策略换参数的结果：
+DB=1、DB=2、FF=4 都能正常走和站（DB=2 站立时轻微晃）；**FF=8 站立明显抖**（目标 1.3°/步）。
 
 命令格式（帧格式和原来一样 `FA AF ID CMD PosH PosL SUM ED`）：
 
@@ -41,8 +45,9 @@ python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --all --kp 16 --ff 1
 
 参数号非法或 0x12 校验字节不对时，Speed = -1，什么都不改。这三条命令不改变力矩状态，但会刷新通信超时计时。
 
-参数来源：仿真里按固件 1 kHz 复刻这条控制律（`microduck_rl/.../actuator/ubt12hc.py`，`JDUCK_FW=16,15,1`），
-用官方规格（7.4 V：4.8 rad/s、0.96 N·m）训练，3 个种子里 2 个在 400 迭代内学会迈步；原版控制律 4000 迭代都不迈步。
+参数来源：仿真里按固件 1 kHz 复刻这条控制律（`microduck_rl/.../actuator/ubt12hc.py`），用官方规格
+（7.4 V：4.8 rad/s、0.96 N·m）训练。原版控制律 4000 迭代都不迈步；K=16 线性律能学会走。
+FF=15/DB=2 能走但零速时一直抖；当前默认 FF=0/DB=0 + 旧 HOME 训练出的策略（r7/r8）三个种子都站得住不抖、能转弯。
 
 验证情况：控制律、超时、参数命令、EEPROM 读写已在 PC 上用 gcc 单独编译测试（PWM 计算与仿真执行器逐项一致，含方向、溢出、`millis()` 溢出；EEPROM 校验错误/超范围时回退默认值），
 **但没有在 ATmega8 上编译、也没有上过硬件**。
@@ -83,11 +88,11 @@ python3 firmware/ubt12hc_pd/make_id_variants.py
 
    | 现象 | 调整 |
    |---|---|
-   | 目标附近来回抖、嗡嗡响 | `--kp 12`；还抖就 `--db 2` |
-   | 停在离目标几个计数处不动 | `--ff 20` ~ `--ff 25` |
-   | 带负载（站立）时下沉很多 | `--kp 20` |
+   | 目标附近来回抖、嗡嗡响 | `--db 1`（当前策略不用重练） |
+   | 停在离目标几个计数处不动 | `--ff 4`（当前策略不用重练） |
+   | 还不行：要 `--db 2` 以上、`--ff 8` 以上，或改 `--kp` | 改，然后**告诉 Claude 重新训练** |
 
-   **改了参数要告诉 Claude**，仿真里要用同样的 `JDUCK_FW=K,FF,DB` 重新训练，否则仿真和真机不一致。
+   仿真里要用同样的 `JDUCK_FW=K,FF,DB` 训练，否则仿真和真机不一致。
 3. 一个舵机没问题了，再烧其余 14 个，**每烧一个就贴好 ID**，最后 `scan` 确认 15 个都应答。
    如果第 2 步调过参数，烧完用 `servo_params.py set --all ... --save` 一次性统一设好。
 

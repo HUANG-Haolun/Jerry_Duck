@@ -5,8 +5,8 @@ ignores these commands and gives no reply.
 
     python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 get --id 9
     python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 get --all
-    python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --id 9 --kp 12 --ff 20
-    python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --all --kp 16 --ff 15 --db 1 --save
+    python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --id 9 --db 1
+    python3 jduck_tools/servo_params.py --port /dev/ttyUSB0 set --all --kp 16 --ff 0 --db 0 --save   # = training (r7/r8)
 
 `set` only changes RAM (lost at power-off) unless --save is given. After tuning
 on the bench, tell Claude the final values so the simulator uses the same law

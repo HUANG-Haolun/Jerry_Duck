@@ -79,6 +79,7 @@ def main():
     p.add_argument("onnx", nargs="+", type=Path)
     p.add_argument("--fw", default="16,0,0")
     p.add_argument("--seeds", type=int, default=3)
+    p.add_argument("--k-sweep", default="12,20", help="extra firmware K values for the zero-command check ('' = off)")
     a = p.parse_args()
     k, ff, db = (float(x) for x in a.fw.split(","))
     fw = dict(S.SimRobot.FW_PD, K=k, FF=ff, DB=db)
@@ -104,6 +105,15 @@ def main():
             if fell:
                 line += f"  摔 {fell}/{len(rs)}"
             print(line)
+        for kk in [float(x) for x in a.k_sweep.split(",") if x]:
+            fwk = dict(fw, K=kk)
+            rs = [run(policy, cal, smap, fwk, (0, 0, 0), s) for s in range(a.seeds)]
+            ok = [r for r in rs if r]
+            if not ok:
+                print(f"  零速 K={kk:g}   全摔")
+                continue
+            print(f"  零速 K={kk:g}   目标每步变化 中位 {np.median([r['dtgt'] for r in ok]):.3f}° 最大 {max(r['dtgt'] for r in ok):.3f}°"
+                  f"  腿|qd| 中位 {np.median([r['qd'] for r in ok]):.4f}" + (f"  摔 {len(rs) - len(ok)}/{len(rs)}" if len(ok) < len(rs) else ""))
 
 
 if __name__ == "__main__":

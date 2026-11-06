@@ -6,7 +6,8 @@
 jduck_eval.py feeds the policy training-style observations (true q, true qd). That
 hid the real problem: on the robot q is ADC-quantized and qd is a 20 ms finite
 difference, and policies that stood perfectly still in jduck_eval jittered here.
-Each case runs 10 s, 3 seeds (different ADC phase via the sim's start pose noise).
+Each case runs 15 s, 3 seeds (different ADC phase via the sim's start pose noise). Jitter is
+measured over 5–15 s: r2 looked quiet for the first few seconds and only then started to jitter.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ CASES = [("零速", 0, 0, 0), ("前进 0.2", 0.2, 0, 0), ("后退 0.2", -0.2, 0,
          ("侧走 0.12", 0, 0.12, 0), ("原地转 0.8", 0, 0, 0.8), ("边走边转", 0.15, 0, 0.5)]
 
 
-def run(policy, cal, smap, fw, cmd3, seed, T=10.0):
+def run(policy, cal, smap, fw, cmd3, seed, T=15.0):
     robot = S.SimRobot(cal, smap, policy.home, fw=fw, seed=seed)
     rng = np.random.default_rng(seed)
     robot.d.qpos[robot.qa] += rng.uniform(-0.01, 0.01, len(robot.qa))   # vary ADC phase / start
@@ -61,7 +62,7 @@ def run(policy, cal, smap, fw, cmd3, seed, T=10.0):
         y = robot.yaw_deg()
         yaw += (y - yp + 180.0) % 360.0 - 180.0
         yp = y
-        if tick * dt > 3.0:
+        if tick * dt > 5.0:
             if tp is not None:
                 dts.append(np.degrees(np.abs(tgt - tp)[LEGS]).mean())
             qds.append(np.abs(robot.d.qvel[robot.va][LEGS]).mean())
@@ -84,7 +85,7 @@ def main():
     smap = load_servo_map(HERE / "servo_map.yaml")
     for path in a.onnx:
         policy = jduck_run.Policy(path)
-        print(f"\n=== {path.name}  [真机控制链路, fw {a.fw}, {a.seeds} 次 × 10 s]")
+        print(f"\n=== {path.name}  [真机控制链路, fw {a.fw}, {a.seeds} 次 × 15 s，抖动看 5–15 s]")
         for name, vx, vy, wz in CASES:
             rs = [run(policy, cal, smap, fw, (vx, vy, wz), s) for s in range(a.seeds)]
             ok = [r for r in rs if r]
@@ -94,8 +95,8 @@ def main():
                 continue
             dx = np.mean([r["dx"] for r in ok], axis=0)
             yaw = np.mean([r["yaw"] for r in ok])
-            line = (f"  {name:10s} dx={dx[0]:+.2f} dy={dx[1]:+.2f} m (理想 {vx * 10:+.1f},{vy * 10:+.1f})  "
-                    f"yaw {yaw:+5.0f}° (理想 {math.degrees(wz * 10):+.0f}°)")
+            line = (f"  {name:10s} dx={dx[0]:+.2f} dy={dx[1]:+.2f} m (理想 {vx * 15:+.1f},{vy * 15:+.1f})  "
+                    f"yaw {yaw:+5.0f}° (理想 {math.degrees(wz * 15):+.0f}°)")
             if name == "零速":
                 line += (f"  | 目标每步变化 中位 {np.median([r['dtgt'] for r in ok]):.3f}° 最大 {max(r['dtgt'] for r in ok):.3f}°"
                          f"  腿|qd| 中位 {np.median([r['qd'] for r in ok]):.4f}")

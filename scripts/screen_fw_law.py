@@ -1,6 +1,6 @@
 """Cheap CPU screen of candidate servo firmware laws before spending a PPO run.
 
-    cd third_party/microduck_rl && uv run --frozen python ../../jduck_tools/screen_fw_law.py
+    cd third_party/microduck_rl && uv run --frozen python ../../scripts/screen_fw_law.py
 
 For each law pwm = clamp(K*|err| + FF, floor, 255) (0 inside the deadband), at
 1 kHz like the firmware, on the jduck MuJoCo model:
@@ -18,6 +18,7 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "jduck_tools"))
 from calibration import JOINTS  # noqa: E402
 
 SCENE = HERE.parent / "jduck_mjcf" / "scene_walk.xml"

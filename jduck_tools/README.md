@@ -1,16 +1,29 @@
-# jduck_tools — 舵机通信与关节标定
+# jduck_tools — 真机端：舵机、标定、IMU、控制程序
 
-UBT-12HC 总线舵机（协议见 `~/Downloads/UBT12HC_总线舵机通讯协议说明.pdf`）的通信和标定工具。
-用**系统 python3** 运行（已带 pyserial、pyyaml），不需要 ROS、不需要 uv 环境。
+UBT-12HC 总线舵机（协议见 `~/Downloads/UBT12HC_总线舵机通讯协议说明.pdf`）和机器人本体的全部真机端代码。
+用**系统 python3** 运行（已带 pyserial、pyyaml），不需要 ROS，也不需要 uv 环境。
+`sim_robot.py` 和 `hw_chain_eval.py` 要用到 mujoco，所以需要在 `third_party/microduck_rl` 下通过 `uv run` 运行。
 
 | 文件 | 作用 |
 |---|---|
-| `servo_bus.py` | 协议编解码 + 半双工总线驱动（之后部署控制循环也复用它） |
-| `calibration.py` | ADC ↔ URDF 关节角换算、`calibration.yaml` 读写、把范围写回 URDF |
-| `calibrate.py` | 命令行标定工具 |
-| `servo_map.yaml` | **关节名 → 舵机 ID**（先按你的实际接法改好） |
-| `calibration.yaml` | 标定结果（标定时自动生成） |
-| `test_tools.py` | 离线测试（不需要硬件）：`python3 -m pytest jduck_tools/test_tools.py -q` |
+| `servo_bus.py` | 协议编解码和半双工总线驱动 |
+| `servo_params.py` | 读写修改版固件的 KP / FF / DB / 超时，并保存到 EEPROM |
+| `calibration.py` | ADC 和 URDF 关节角的换算、`calibration.yaml` 的读写、把标定范围写回 URDF |
+| `calibrate.py` | 标定命令行工具：scan / monitor / measure-k / joint / report / apply / verify / speed-test |
+| `servo_map.yaml` | **关节名到舵机 ID 的对应**（来自朋友的表，要用 `monitor` 确认一遍） |
+| `calibration.yaml` | 标定结果（目前是从 `joint_limit.txt` 导入的，零位还不可靠） |
+| `joint_limit.txt` / `import_joint_limit.py` | 朋友测的 ID、初始位置和范围表，以及把它导入成 `calibration.yaml` 的脚本 |
+| `imu_lsm6dsv16x.py` / `imu.yaml` | IMU 驱动和互补滤波；`axes` 要按实际安装方向改 |
+| `jduck_run.py` | **50 Hz 真机控制程序**：读舵机和 IMU，拼 61 维观测，跑 ONNX，发目标；先慢慢移到 HOME，带 `--dry-run` 和安全卸力 |
+| `sim_robot.py` | 仿真替身：用 MuJoCo 冒充舵机总线和 IMU，按固件控制律在 1 kHz 下仿真，让 `jduck_run` 不接硬件也能跑 |
+| `hw_chain_eval.py` | 用 `jduck_run` 的控制循环加 `sim_robot` 测评策略。**判断能不能上机以它为准** |
+| `test_tools.py` | 离线测试，不需要硬件：`env -u PYTHONPATH python3 -m pytest jduck_tools/test_tools.py -q` |
+
+```bash
+cd third_party/microduck_rl
+uv run --frozen python ../../jduck_tools/hw_chain_eval.py jduck_xxx.onnx            # 零速抖动、走、转
+uv run --frozen python ../../jduck_tools/sim_robot.py --policy jduck_xxx.onnx --vx 0.2   # 单条指令
+```
 
 > ⚠ 这套工具还**没在真实硬件上跑过**，只用模拟舵机测过协议和计算。第一次用时先接一个舵机试 `scan`。
 
@@ -23,12 +36,12 @@ q(rad, URDF) = sign × (adc − adc_zero) × k
 - `sign`：往 URDF 正方向转时 ADC 增大为 +1，减小为 −1
 - `k`：每个 ADC 计数多少弧度（规格书标称 2π/1024 ≈ 0.00614，要实测）
 
-## 标定流程（在 `rl_control/` 下运行）
+## 标定流程（在 `rl_control/` 下运行，需要真机）
 
 ### 0. 准备
 - 机器人吊起来或放平，舵机供电，USB 转 TTL 插电脑。
 - `ls /dev/ttyUSB* /dev/ttyACM*` 找到串口名，下面以 `/dev/ttyUSB0` 为例。
-- 先在 `python3 view_urdf.py jduck_description/urdf/jduck_description.urdf`（或 RViz）里看好
+- 先在 `python3 scripts/view_urdf.py jduck_description/urdf/jduck_description.urdf`（或 RViz）里看好
   **每个关节 0 位的样子和正方向**——截图留着对照。
 
 ### 1. 扫描总线

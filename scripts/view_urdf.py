@@ -1,9 +1,7 @@
 """用 pybullet GUI 查看 URDF，每个可动关节一个滑条。
 
-用法:
-    conda activate ros_humble
-    python view_urdf.py MetalDuck_description/urdf/MetalDuck_description.urdf
-    python view_urdf.py W01-00-000-0000-0831/W01-00-000-0000/urdf/W01-00-000-0000.urdf
+用法（系统 python3，pybullet 装在 ~/.local，不需要 ROS）:
+    python3 scripts/view_urdf.py jduck_description/urdf/jduck_description.urdf
 """
 import os
 import sys

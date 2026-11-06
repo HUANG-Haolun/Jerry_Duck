@@ -187,7 +187,7 @@ def _calibrate_one(name: str, sid: int, bus: ServoBus, cal: Calibration,
     c = JointCal(id=sid)
     lo, hi = urdf_limits.get(name, (float("nan"), float("nan")))
     print(f"\n=== {name}（ID {sid}）  当前 URDF 范围 [{lo:+.3f}, {hi:+.3f}] rad ===")
-    print("先在 view_urdf.py / RViz 里看好：这个关节 0 位长什么样、往正方向转是哪边。")
+    print("先在 scripts/view_urdf.py / RViz 里看好：这个关节 0 位长什么样、往正方向转是哪边。")
     steps = [
         ("zero", "1) 摆到 URDF 的 0 位（和模型截图一致），按 [空格] 记录零位"),
         ("plus", "2) 从零位往 URDF **正方向** 转 20° 以上，按 [空格]（用来判断方向）"),

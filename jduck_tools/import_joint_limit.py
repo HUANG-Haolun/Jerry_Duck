@@ -9,7 +9,7 @@ Assumptions (check with `calibrate.py verify` on the robot):
     evidently entered from this same table. For 4 joints the two signs fit about
     equally badly; those are listed as UNSURE.
 
-    python3 jduck_tools/import_joint_limit.py [joint_limit.txt]
+    python3 jduck_tools/import_joint_limit.py [jduck_tools/joint_limit.txt]
 """
 
 import math
@@ -21,7 +21,7 @@ sys.path.insert(0, str(HERE))
 
 from calibration import JOINTS, Calibration, JointCal, read_urdf_limits  # noqa: E402
 
-SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE.parent / "joint_limit.txt"
+SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "joint_limit.txt"
 URDF = HERE.parent / "jduck_description" / "urdf" / "jduck_description.urdf"
 CAL = HERE / "calibration.yaml"
 MAP = HERE / "servo_map.yaml"

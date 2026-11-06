@@ -1,13 +1,15 @@
 """MuJoCo stand-in for the real jduck, behind the same interfaces as the hardware.
 
 `SimBus` answers UBT-12HC frames the way the firmware does. It reports the ADC
-position (through calibration.yaml) and runs the firmware law at 1 kHz (pwm =
-clamp(|err|, 48, 255), deadband 2) with a DC motor (0.8 N·m, 3 rad/s).
+position (through calibration.yaml) and runs the firmware law at 1 kHz with a DC
+motor. Default = what the current policies are trained on: firmware/ubt12hc_pd at
+K=16 FF=0 DB=0, 0.96 N·m, 4.8 rad/s (official 7.4 V spec).
 `SimImu` returns the trunk gyro and gravity. Use them to test jduck_run.py
 without hardware:
 
     cd third_party/microduck_rl
-    uv run --frozen python ../../jduck_tools/sim_robot.py --policy jduck_walk_fw.onnx
+    uv run --frozen python ../../jduck_tools/sim_robot.py --policy jduck_r7_old_quiet4s1_seed2.onnx
+    uv run --frozen python ../../jduck_tools/sim_robot.py --policy ... --vx 0.2 --fw 16,0,1
 
 Uses mujoco from the microduck_rl venv.
 """
@@ -33,10 +35,10 @@ SCENE = HERE.parent / "jduck_mjcf" / "scene_walk.xml"
 class SimRobot:
     # Firmware laws: pwm = clamp(K*|err| + FF, floor, 255), 0 if |err| <= DB.
     FW_ORIG = dict(K=1, FF=0, floor=48, DB=2, timeout_ms=0)        # send_rev_230400_ult.ino
-    FW_PD = dict(K=16, FF=15, floor=0, DB=1, timeout_ms=200, params=True)  # firmware/ubt12hc_pd
+    FW_PD = dict(K=16, FF=0, floor=0, DB=0, timeout_ms=200, params=True)   # firmware/ubt12hc_pd defaults
 
     def __init__(self, cal: Calibration, servo_map: dict[str, int], home_q: np.ndarray,
-                 stall=0.8, no_load=3.0, seed=0, fw=None):
+                 stall=0.96, no_load=4.8, seed=0, fw=None):
         self.m = mujoco.MjModel.from_xml_path(str(SCENE))
         self.m.opt.timestep = 0.001                     # = firmware rate
         self.d = mujoco.MjData(self.m)
@@ -46,7 +48,7 @@ class SimRobot:
         self.cal = [cal.joints[j] for j in JOINTS]
         self.by_id = {servo_map[j]: i for i, j in enumerate(JOINTS)}
         self.stall, self.no_load = stall, no_load
-        self.fw = dict(fw or self.FW_ORIG)
+        self.fw = dict(fw or self.FW_PD)
         n = len(JOINTS)
         self.last_cmd_t = np.zeros(n)
         self.enabled = np.zeros(n, bool)
@@ -121,6 +123,10 @@ class SimRobot:
         self.prev_cmd[i] = cmd
         return Reply(sid, cur, 0)
 
+    def yaw_deg(self) -> float:
+        q = self.d.qpos[3:7]
+        return math.degrees(math.atan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (q[2] ** 2 + q[3] ** 2)))
+
     def tilt_deg(self) -> float:
         up = self.d.xmat[1].reshape(3, 3)[:, 2]
         return math.degrees(math.acos(min(1.0, up[2])))
@@ -170,25 +176,35 @@ def main():
     p.add_argument("--policy", type=Path, required=True)
     p.add_argument("--seconds", type=float, default=8.0)
     p.add_argument("--vx", type=float, default=0.0)
+    p.add_argument("--vy", type=float, default=0.0)
     p.add_argument("--wz", type=float, default=0.0)
+    p.add_argument("--fw", default="16,0,0", help="K,FF,DB of firmware/ubt12hc_pd; 'orig' = stock firmware")
     a = p.parse_args()
 
     cal = Calibration.load(HERE / "calibration.yaml")
     servo_map = load_servo_map(HERE / "servo_map.yaml")
     policy = jduck_run.Policy(a.policy)
-    robot = SimRobot(cal, servo_map, policy.home)
+    if a.fw == "orig":
+        fw = SimRobot.FW_ORIG
+    else:
+        k, ff, db = (float(x) for x in a.fw.split(","))
+        fw = dict(SimRobot.FW_PD, K=k, FF=ff, DB=db)
+    robot = SimRobot(cal, servo_map, policy.home, fw=fw)
     bus = SimBus(robot)
     joints = jduck_run.Joints(bus, cal, servo_map, math.radians(5))
     imu = SimImu(robot)
     home = policy.home
     cmd = np.zeros(13, np.float32)
-    cmd[0], cmd[2] = a.vx, a.wz
+    cmd[0], cmd[1], cmd[2] = a.vx, a.vy, a.wz
 
     q = joints.move(home)            # power on at HOME
     q_old = q.copy()
     last = np.zeros(14, np.float32)
     x0 = robot.d.qpos[:2].copy()
     dt = jduck_run.CONTROL_DT
+    yaw0 = yaw_prev = robot.yaw_deg()
+    yaw_acc, tgt_prev, dtgt, legs_qd = 0.0, None, [], []
+    legs = [*range(0, 5), *range(9, 14)]
     for tick in range(int(a.seconds / dt)):
         t_used = robot.d.time
         w, g = imu.read()
@@ -196,14 +212,24 @@ def main():
         obs = np.concatenate([w, g, q - home, qd, last, cmd]).astype(np.float32)
         act = policy(obs).astype(np.float32)
         last = act
-        q_new = joints.move(home + act * policy.action_scale)
+        tgt = home + act * policy.action_scale
+        q_new = joints.move(tgt)
         q_old, q = q, q_new
         robot.step(max(0.0, dt - (robot.d.time - t_used)))   # rest of the 20 ms tick
+        y = robot.yaw_deg()
+        yaw_acc += (y - yaw_prev + 180.0) % 360.0 - 180.0
+        yaw_prev = y
+        if tick * dt > 3.0:                                  # settled: measure jitter
+            if tgt_prev is not None:
+                dtgt.append(np.degrees(np.abs(tgt - tgt_prev)[legs]).mean())
+            legs_qd.append(np.abs(robot.d.qvel[robot.va][legs]).mean())
+        tgt_prev = tgt
         if robot.tilt_deg() > 50:
             print(f"FELL at t={tick * dt:.2f}s")
             return
     dx = robot.d.qpos[:2] - x0
-    print(f"OK {a.seconds:.0f}s: tilt {robot.tilt_deg():.1f}°  moved dx={dx[0]:+.2f} dy={dx[1]:+.2f} m")
+    print(f"OK {a.seconds:.0f}s fw={a.fw}: tilt {robot.tilt_deg():.1f}°  moved dx={dx[0]:+.2f} dy={dx[1]:+.2f} m  "
+          f"yaw {yaw_acc:+.0f}°  | after 3 s: target change {np.mean(dtgt):.3f}°/step, leg |qd| {np.mean(legs_qd):.4f} rad/s")
 
 
 if __name__ == "__main__":

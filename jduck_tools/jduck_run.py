@@ -66,6 +66,8 @@ class Policy:
             raise SystemExit(f"ONNX joint order {names} != expected {JOINTS}")
         self.home = np.array([float(x) for x in meta["default_joint_pos"].split(",")], np.float32)
         self.action_scale = float(meta.get("action_scale", "1.0"))
+        # qd low-pass used in training (JDUCK_QD_EMA); 1 = raw finite difference
+        self.qd_ema = float(meta.get("jduck_qd_ema", "1"))
         n_in = self.sess.get_inputs()[0].shape[1]
         if n_in != 61:
             raise SystemExit(f"policy expects {n_in}D obs, this runner builds 61D")
@@ -252,6 +254,7 @@ def run(args) -> None:
     # replies to last tick's CMD 0x01 (the firmware answers with the ADC read just
     # before applying the command). `q_old` is the one before it, for qd.
     q_old, t_old = q.copy(), time.monotonic() - CONTROL_DT
+    qd_f = np.zeros(len(JOINTS), np.float32)
     worst_dt = 0.0
     tick = 0
     try:
@@ -264,7 +267,8 @@ def run(args) -> None:
                 if tilt > args.max_tilt:
                     print(f"\n倾斜 {tilt:.0f}° > {args.max_tilt}°，卸力停止")
                     break
-                qd = (q - q_old) / max(1e-3, t0 - t_old)
+                qd_f += policy.qd_ema * ((q - q_old) / max(1e-3, t0 - t_old) - qd_f)
+                qd = qd_f
                 obs = np.concatenate([ang_vel, grav, q - home, qd, last_action, cmds.cmd]).astype(np.float32)
                 if not np.isfinite(obs).all():
                     print("\nobs 有 NaN，卸力停止")

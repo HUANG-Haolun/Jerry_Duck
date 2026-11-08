@@ -4,53 +4,15 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <string.h>
-#include <gpiod.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <time.h>
 
 #define UART_DEV "/dev/ttyS3"
 
-#define TXEN_GPIO 7
-#define RXEN_GPIO 8
-
-#define SERVO_ID 6
+#define SEND_INTERVAL_NS 100000000L /* 10 Hz */
 
 int uart_fd;
-struct gpiod_chip *chip;
-struct gpiod_line *txen;
-struct gpiod_line *rxen;
-
-
-/* =========================
- * GPIO 初始化
- * ========================= */
-int gpio_init(void)
-{
-    chip = gpiod_chip_open("/dev/gpiochip3");
-
-    if (!chip) {
-        perror("gpiod_chip_open");
-        return -1;
-    }
-
-    txen = gpiod_chip_get_line(chip, TXEN_GPIO);
-    rxen = gpiod_chip_get_line(chip, RXEN_GPIO);
-
-    if (!txen || !rxen) {
-        perror("gpiod_chip_get_line");
-        return -1;
-    }
-
-    if (gpiod_line_request_output(txen, "ubt_txen", 0) < 0) {
-        perror("TXEN");
-        return -1;
-    }
-
-    if (gpiod_line_request_output(rxen, "ubt_rxen", 0) < 0) {
-        perror("RXEN");
-        return -1;
-    }
-
-    return 0;
-}
 
 
 /* =========================
@@ -77,8 +39,8 @@ int uart_init(void)
         return -1;
     }
 
-    cfsetispeed(&tty, B115200);
-    cfsetospeed(&tty, B115200);
+    cfsetispeed(&tty, B230400);
+    cfsetospeed(&tty, B230400);
 
     /* 8N1 */
     tty.c_cflag &= ~PARENB;
@@ -112,39 +74,14 @@ int uart_init(void)
 
 
 /* =========================
- * TX模式
- * ========================= */
-void rx_mode(void)
-{
-    gpiod_line_set_value(txen, 1);
-    gpiod_line_set_value(rxen, 0);
-
-    usleep(20);
-}
-
-
-/* =========================
- * RX模式
- * ========================= */
-void tx_mode(void)
-{
-    gpiod_line_set_value(txen, 0);
-    gpiod_line_set_value(rxen, 1);
-
-    usleep(20);
-}
-
-
-/* =========================
  * 发送舵机命令
  * ========================= */
 void servo_move(
     uint8_t id,
-    uint8_t position,
-    uint8_t time
+    uint16_t position
 )
 {
-    uint8_t packet[10];
+    uint8_t packet[8];
 
     packet[0] = 0xFA;
     packet[1] = 0xAF;
@@ -152,42 +89,34 @@ void servo_move(
     packet[2] = id;
     packet[3] = 0x01;
 
-    packet[4] = position;
-    packet[5] = time;
-
-    packet[6] = 0x00;
-    packet[7] = 0x00;
+    packet[4] = (uint8_t)(position >> 8);
+    packet[5] = (uint8_t)position;
 
     /*
      * checksum
      */
-    packet[8] =
+    packet[6] =
         (packet[2] +
          packet[3] +
          packet[4] +
-         packet[5] +
-         packet[6] +
-         packet[7]) & 0xFF;
+         packet[5]) & 0xFF;
 
-    packet[9] = 0xED;
+    packet[7] = 0xED;
 
 
     printf("TX:");
 
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 8; i++)
         printf(" %02X", packet[i]);
 
     printf("\n");
 
 
-    /* 切换发送 */
-    tx_mode();
-
     /* 发送 */
     write(
         uart_fd,
         packet,
-        10
+        sizeof(packet)
     );
 
     /*
@@ -196,33 +125,45 @@ void servo_move(
      */
     tcdrain(uart_fd);
 
-    /* 切换接收 */
-    rx_mode();
 }
 
 
 /* =========================
  * main
  * ========================= */
-int main(void)
+static int parse_number(const char *text, long minimum, long maximum,
+                        uint16_t *value)
 {
+    char *end;
+    errno = 0;
+    long parsed = strtol(text, &end, 10);
+    if (errno || end == text || *end != '\0' || parsed < minimum || parsed > maximum)
+        return -1;
+    *value = (uint16_t)parsed;
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    uint16_t servo_id;
+    uint16_t position;
+
+    if (argc != 3 || parse_number(argv[1], 0, 255, &servo_id) < 0 ||
+        parse_number(argv[2], 100, 900, &position) < 0) {
+        fprintf(stderr, "Usage: %s <ID: 0-255> <position: 100-900>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
     printf("\n");
     printf("============================\n");
     printf(" UBTECH UBT-12HC TEST\n");
     printf("============================\n");
 
     printf("UART : %s\n", UART_DEV);
-    printf("TXEN : GPIO3_A7\n");
-    printf("RXEN : GPIO3_B0\n");
-    printf("Baud : 115200\n");
-    printf("Servo ID : %d\n\n", SERVO_ID);
-
-
-    /* GPIO */
-    if (gpio_init() < 0)
-        return -1;
-
-    printf("GPIO OK\n");
+    printf("Baud : 230400\n");
+    printf("Servo ID : %u\n", servo_id);
+    printf("Position : %u\n", position);
+    printf("Send rate : 10 Hz (100 ms)\n\n");
 
 
     /* UART */
@@ -232,39 +173,35 @@ int main(void)
     printf("UART OK\n");
 
 
-    rx_mode();
-
-
-    /*
-     * ==========================
-     * 移动到位置
-     * ==========================
-     *
-     * position：
-     *
-     * 2   ~ 最小
-     * 70  ~ 中间附近
-     * 120 ~ 中间附近
-     * 138 ~ 最大
-     *
-     * time：
-     * 50 = 约 1 秒
-     */
-
+    /* 位置范围：100～900，按 8 字节协议发送。 */
     printf("Move servo...\n");
 
-    servo_move(
-        SERVO_ID,
-        150,
-        50
-    );
-
-
-    printf("Command sent.\n");
+    struct timespec next_send;
+    if (clock_gettime(CLOCK_MONOTONIC, &next_send) < 0) {
+        perror("clock_gettime");
+        return EXIT_FAILURE;
+    }
 
     while (1)
     {
-        sleep(1);
+        servo_move((uint8_t)servo_id, position);
+
+        next_send.tv_nsec += SEND_INTERVAL_NS;
+        if (next_send.tv_nsec >= 1000000000L) {
+            next_send.tv_sec++;
+            next_send.tv_nsec -= 1000000000L;
+        }
+
+        int result;
+        do {
+            result = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME,
+                                     &next_send, NULL);
+        } while (result == EINTR);
+        if (result != 0) {
+            errno = result;
+            perror("clock_nanosleep");
+            return EXIT_FAILURE;
+        }
     }
 
 

@@ -77,12 +77,15 @@ def run(policy, cal, smap, fw, cmd3, seed, T=15.0):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("onnx", nargs="+", type=Path)
-    p.add_argument("--fw", default="16,0,0")
+    p.add_argument("--fw", default="16,0,0", help="K,FF,DB[,FLOOR] of firmware/ubt12hc_pd, or 'orig' = stock firmware")
     p.add_argument("--seeds", type=int, default=3)
     p.add_argument("--k-sweep", default="12,20", help="extra firmware K values for the zero-command check ('' = off)")
     a = p.parse_args()
-    k, ff, db = (float(x) for x in a.fw.split(","))
-    fw = dict(S.SimRobot.FW_PD, K=k, FF=ff, DB=db)
+    if a.fw == "orig":                       # stock firmware: pwm = clamp(|err|, 48, 255), deadband 2
+        fw = dict(S.SimRobot.FW_ORIG)
+    else:
+        v = [float(x) for x in a.fw.split(",")]
+        fw = dict(S.SimRobot.FW_PD, K=v[0], FF=v[1], DB=v[2], floor=v[3] if len(v) > 3 else 0.0)
     cal = Calibration.load(HERE / "calibration.yaml")
     smap = load_servo_map(HERE / "servo_map.yaml")
     for path in a.onnx:
@@ -105,8 +108,8 @@ def main():
             if fell:
                 line += f"  摔 {fell}/{len(rs)}"
             print(line)
-        for kk in [float(x) for x in a.k_sweep.split(",") if x]:
-            fwk = dict(fw, K=kk)
+        for kk in ([] if a.fw == "orig" else [float(x) for x in a.k_sweep.split(",") if x]):
+            fwk = dict(fw, K=kk)   # (not used for 'orig': the sweep is empty)
             rs = [run(policy, cal, smap, fwk, (0, 0, 0), s) for s in range(a.seeds)]
             ok = [r for r in rs if r]
             if not ok:

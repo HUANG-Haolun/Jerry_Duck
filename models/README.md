@@ -7,7 +7,9 @@
 | `jduck_O1_orig_full.onnx` | **原版**（`firmware/stock/send_rev_230400_ult.ino`，朋友烧的那版） | 不用设，固件写死 | 固件改不了的时候 |
 | `jduck_N1_k8_calm0.3_caps5.onnx` | **修改版**（`firmware/ubt12hc_pd/`） | **KP=8 FF=0 DB=0**，上机前先设 | 能烧修改版固件的时候 |
 
-两个模型都用**旧 HOME**（hip_pitch ±0.25、knee ∓0.30、ankle ±0.05），HOME 存在 ONNX 元数据里，`jduck_run.py` 会自己读。
+| `jduck_getup_jsu14.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **摔倒后自己爬起来**，配 N1 用（见下） |
+
+两个走路模型和起身模型都用**旧 HOME**（hip_pitch ±0.25、knee ∓0.30、ankle ±0.05），HOME 存在 ONNX 元数据里，`jduck_run.py` 会自己读。
 都是 61 维观测、14 维动作、50 Hz，大小 776 KB。
 
 ## 怎么跑
@@ -22,6 +24,15 @@ python3 jduck_tools/servo_params.py --port /dev/ttyS3 set --all --kp 8 --ff 0 --
 python3 jduck_tools/jduck_run.py --port /dev/ttyS3 --policy models/jduck_N1_k8_calm0.3_caps5.onnx \
     --imu-config jduck_tools/imu.yaml --dry-run
 ```
+走路 + 摔倒自己爬起来（N1 + 起身模型，`--getup-policy`）：
+```bash
+python3 jduck_tools/jduck_run.py --port /dev/ttyS3 --policy models/jduck_N1_k8_calm0.3_caps5.onnx \
+    --getup-policy models/jduck_getup_jsu14.onnx --imu-config jduck_tools/imu.yaml --dry-run
+```
+倾斜超过 45° 就切到起身模型（此时速度指令被忽略），倾斜 < 12° 且腿关节都回到 HOME 附近（0.35 rad 以内）
+保持 0.6 s 后切回 N1。给了 `--getup-policy` 时 `--max-tilt` 卸力保护不再生效（摔倒正是要它自己起来），
+**第一次请在软垫上、手扶着试。**
+
 `--dry-run` 只读传感器、跑策略，不给舵机上电。确认关节读数、姿态都正常后再去掉，**第一次上电要把机器人吊起来**。
 上机前的完整检查（标定零位、IMU 方向）见 [`jduck_tools/README.md`](../jduck_tools/README.md)。
 
@@ -52,6 +63,27 @@ uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jdu
   仿真里关节摩擦越大越安静，真机齿轮箱的摩擦应该比仿真默认值（0.01 N·m）大，可能会比这里好。
 - **N1** 站得更稳，但后退会自转。
 - 两个都还**没在真机上跑过**。
+
+## 起身模型 `jduck_getup_jsu14.onnx`（2026-11-10）
+
+仿真测评（`jduck_tools/fall_chain_eval.py`：和 `jduck_run.py` 一样的控制循环 + 躯干/头/腿也能碰地的模型，修改版固件 K=8）：
+
+| 项目 | N1 + 起身模型（摔倒后切换） |
+|---|---|
+| 趴着起身 | 4/4，中位 0.7 s |
+| 仰着起身 | 4/4，中位 1.1 s |
+| 侧躺起身 | 4/4，中位 0.7 s |
+| 走 0.15 m/s，每 6 s 推一下（0.9 m/s），30 s | 推倒 12 次，自己爬起 12 次，最后都站着 |
+
+动作：先收腿，拿头当支点撑一下，再把身体推起来（视频 `~/jduck_ops/jsu14_getup.mp4`）。
+起身很吃力矩：舵机只有 0.77 N·m（标称的 80%）时仿真里找不到能起来的动作，真机电压低/舵机热了可能起不来。
+头会撞地，**头壳和脖子要结实**。训练过程见 `third_party/microduck_rl` 的 `jduck_standup_env_cfg.py` 和 CLAUDE.md。
+
+```bash
+cd third_party/microduck_rl
+uv run --frozen python ../../jduck_tools/fall_chain_eval.py ../../models/jduck_N1_k8_calm0.3_caps5.onnx \
+    --getup ../../models/jduck_getup_jsu14.onnx
+```
 
 ## 训练配置（复现用）
 

@@ -76,6 +76,35 @@ class Policy:
         return self.sess.run([self.out], {self.inp: obs[None].astype(np.float32)})[0][0]
 
 
+class PolicySwitch:
+    """Walk policy while upright, stand-up policy after a fall (until VelStand works on jduck).
+    Fall: tilt > fall_deg → get-up. Back to walking: tilt < up_deg AND every leg joint within
+    leg_tol of HOME, held for hold_s. Both policies share the 61-D obs and HOME."""
+
+    LEGS = [*range(0, 5), *range(9, 14)]
+
+    def __init__(self, walk: Policy, getup: Policy, fall_deg=45.0, up_deg=12.0, leg_tol=0.35, hold_s=0.6):
+        self.walk, self.getup = walk, getup
+        self.fall_deg, self.up_deg, self.leg_tol, self.hold_s = fall_deg, up_deg, leg_tol, hold_s
+        self.active, self.ok_since, self.switches = walk, None, 0
+
+    def select(self, tilt_deg: float, dq: np.ndarray, t: float) -> Policy:
+        if self.active is self.walk:
+            if tilt_deg > self.fall_deg:
+                self.active, self.ok_since = self.getup, None
+                self.switches += 1
+        else:
+            ok = tilt_deg < self.up_deg and np.abs(dq[self.LEGS]).max() < self.leg_tol
+            if not ok:
+                self.ok_since = None
+            elif self.ok_since is None:
+                self.ok_since = t
+            elif t - self.ok_since >= self.hold_s:
+                self.active = self.walk
+                self.switches += 1
+        return self.active
+
+
 # ---------------------------------------------------------------- joints
 class Joints:
     """14 servos over the bus: ADC <-> URDF rad via calibration.yaml."""
@@ -211,6 +240,9 @@ def run(args) -> None:
     cal = Calibration.load(args.cal)
     servo_map = load_servo_map(args.map)
     policy = Policy(args.policy)
+    switch = PolicySwitch(policy, Policy(args.getup_policy)) if args.getup_policy else None
+    if switch is not None and np.abs(switch.getup.home - policy.home).max() > 1e-4:
+        raise SystemExit("两个策略的 HOME 不一样")
     if args.imu_config:
         from imu_lsm6dsv16x import Imu
         imu = Imu.from_config(args.imu_config)
@@ -264,7 +296,7 @@ def run(args) -> None:
                 cmds.poll()
                 ang_vel, grav = imu.read()
                 tilt = math.degrees(math.acos(max(-1.0, min(1.0, -float(grav[2])))))
-                if tilt > args.max_tilt:
+                if switch is None and tilt > args.max_tilt:
                     print(f"\n倾斜 {tilt:.0f}° > {args.max_tilt}°，卸力停止")
                     break
                 qd_f += policy.qd_ema * ((q - q_old) / max(1e-3, t0 - t_old) - qd_f)
@@ -273,7 +305,13 @@ def run(args) -> None:
                 if not np.isfinite(obs).all():
                     print("\nobs 有 NaN，卸力停止")
                     break
-                action = policy(obs).astype(np.float32)
+                if switch is not None:
+                    pol = switch.select(tilt, q - home, tick * CONTROL_DT)
+                    if pol is switch.getup:
+                        obs[48:] = 0.0                   # the get-up policy is driven at zero command
+                    action = pol(obs).astype(np.float32)
+                else:
+                    action = policy(obs).astype(np.float32)
                 last_action = action
                 target = home + action * policy.action_scale
                 q_new = joints.read_relaxed() if args.dry_run else joints.move(target)
@@ -289,7 +327,8 @@ def run(args) -> None:
                     sys.stdout.write(
                         f"\rcmd vx={cmds.cmd[0]:+.2f} vy={cmds.cmd[1]:+.2f} wz={cmds.cmd[2]:+.2f} | "
                         f"tilt {tilt:4.1f}° | loop {el * 1000:4.1f} ms (worst {worst_dt * 1000:4.1f}) "
-                        f"| max|a| {np.abs(action).max():.2f}   ")
+                        f"| max|a| {np.abs(action).max():.2f}"
+                        + (f" | {'起身' if switch.active is switch.getup else '走路'}" if switch else "") + "   ")
                     sys.stdout.flush()
                 time.sleep(max(0.0, CONTROL_DT - (time.monotonic() - t0)))
     finally:
@@ -311,7 +350,9 @@ def main() -> None:
     p.add_argument("--gamepad", default=None, help="例如 /dev/input/js0")
     p.add_argument("--dry-run", action="store_true", help="只读传感器 + 跑策略，不给舵机上电")
     p.add_argument("--ramp-s", type=float, default=3.0)
-    p.add_argument("--max-tilt", type=float, default=50.0)
+    p.add_argument("--max-tilt", type=float, default=50.0, help="超过就卸力（给了 --getup-policy 时不生效）")
+    p.add_argument("--getup-policy", type=Path, default=None,
+                   help="摔倒（倾斜 > 45°）后切到这个起身策略，站稳后切回 --policy")
     p.add_argument("--limit-margin-deg", type=float, default=5.0)
     run(p.parse_args())
 

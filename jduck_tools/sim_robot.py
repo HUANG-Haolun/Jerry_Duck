@@ -30,6 +30,7 @@ from calibration import JOINTS, Calibration, load_servo_map  # noqa: E402
 from servo_bus import CMD_HOLD, CMD_MOVE, CMD_RELAX, Reply  # noqa: E402
 
 SCENE = HERE.parent / "jduck_mjcf" / "scene_walk.xml"
+SCENE_GC = HERE.parent / "jduck_mjcf" / "scene_groundcontact.xml"   # body also collides with the floor
 
 
 class SimRobot:
@@ -38,8 +39,8 @@ class SimRobot:
     FW_PD = dict(K=16, FF=0, floor=0, DB=0, timeout_ms=200, params=True)   # firmware/ubt12hc_pd defaults
 
     def __init__(self, cal: Calibration, servo_map: dict[str, int], home_q: np.ndarray,
-                 stall=0.96, no_load=4.8, seed=0, fw=None, friction=None):
-        self.m = mujoco.MjModel.from_xml_path(str(SCENE))
+                 stall=0.96, no_load=4.8, seed=0, fw=None, friction=None, scene=None):
+        self.m = mujoco.MjModel.from_xml_path(str(scene or SCENE))
         self.m.opt.timestep = 0.001                     # = firmware rate
         self.d = mujoco.MjData(self.m)
         self.qa = np.array([self.m.jnt_qposadr[self.m.joint(j).id] for j in JOINTS])

@@ -1,7 +1,7 @@
 # jduck 起身策略的制作脚本
 
 都在 `third_party/microduck_rl` 下用 `uv run --frozen python ../../scripts/getup/<脚本>` 运行，
-运行前要 export 训练用的 `JDUCK_*` 变量（见 `run.sh` 示例）。脚本里的中间文件读写 `~/jduck_ops/`。
+运行前要 export 训练用的 `JDUCK_*` 变量（见下面 PPO 那条命令）。脚本里的中间文件读写 `~/jduck_ops/`。
 
 | 脚本 | 做什么 | 输出 |
 |---|---|---|

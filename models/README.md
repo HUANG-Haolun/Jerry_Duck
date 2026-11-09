@@ -90,6 +90,14 @@ uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jdu
 
 训练环境里（`getup_eval.py`，128 个环境、带随机化）：站 100%、蹲 100%、趴 100%、仰 100%、侧躺 99%。
 
+键盘玩（按 **P** 随机推一把，1 m/s，会推倒；方向键走，空格停，q 退出）：
+```bash
+cd third_party/microduck_rl
+uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jduck_velstand_d1.onnx \
+    --jduck-fw 8,0,0 --jduck-torque 0.96 --jduck-noload 4.8 --scene ../../jduck_mjcf/scene_groundcontact_view.xml
+```
+（一定要带 `--scene ...groundcontact...`：默认的走路场景只有脚能碰地，摔倒后身体会穿进地板。）
+
 ## 起身模型 `jduck_getup_jsu14.onnx`（2026-11-10）
 
 仿真测评（`jduck_tools/fall_chain_eval.py`：和 `jduck_run.py` 一样的控制循环 + 躯干/头/腿也能碰地的模型，修改版固件 K=8）：

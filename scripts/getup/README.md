@@ -8,6 +8,7 @@
 | `cem_env.py down|roll [噪声] [代数]` | 训练环境里 CEM 搜关键帧动作（4 帧，左右腿可不同），按 32 个随机化+噪声环境的站起率打分 | `~/jduck_ops/cem_env_<down|roll>.json` |
 | `record_env.py out.npz down.json [roll.json] [噪声]` | 带噪声回放、录下成功回合的 (qpos, qvel, 动作) | `env_states_<down|up>.npz` |
 | `dagger_getup.py base.pt out.pt` | DAgger：专家 = 最近录制状态的下一步动作；β 从 1 降到 0 | 可接着 PPO 的 checkpoint |
+| `distill_switch.py WALK.pt GETUP.pt OUT.pt` | DAgger 把“走路 + 起身 + 切换规则”蒸馏成一个策略（VelStand 环境） | `jduck_velstand_d1` 就是这么来的 |
 | `getup_eval.py <task> <onnx> [秒] [状态列表]` | 各种起始姿态（站、蹲、趴、仰、侧躺）的站起率 | 打印 |
 | `getup_video.py <task> <onnx> <mp4>` | 录起身视频（`MUJOCO_GL=egl`） | mp4 |
 

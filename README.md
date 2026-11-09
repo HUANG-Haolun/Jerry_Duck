@@ -112,9 +112,12 @@ uv run --frozen python ../../jduck_tools/hw_chain_eval.py jduck_mytry.onnx      
    1250 次迭代就从趴/仰/侧躺 100% 站起，约 1 s。这就是 `models/jduck_getup_jsu14.onnx`。
    起身对力矩很敏感，所以用 `JDUCK_TORQUE_DR=0.95,1.15 JDUCK_KP_DR=0.9,1.25`。
 
-上真机现在用“切换”：`jduck_run.py --policy N1 --getup-policy 起身模型`，见 [`models/README.md`](models/README.md)。
-把两者合成一个策略的 `Mjlab-VelStand-Flat-JDuck` 还在练：PPO 的动作噪声必须封顶（`JDUCK_VS_MAX_STD=0.15`），
-否则噪声涨到 0.4、起身全失败，策略就学会趴着不动。
+4. 会走又会爬起来的单策略 `models/jduck_velstand_d1.onnx`：`scripts/getup/distill_switch.py` 用 DAgger 把
+   “N1 + 起身模型 + `jduck_run.PolicySwitch` 的切换规则”蒸馏成一个策略（VelStand 环境，10 轮，笔记本约 25 分钟）。
+   直接 PPO 练 `Mjlab-VelStand-Flat-JDuck`（microduck 配方，jvs1–7）都不行：动作噪声会涨到 0.4，起身全失败，
+   策略学会趴着不动；噪声封顶（`JDUCK_VS_MAX_STD`）、加大 BC（`JDUCK_VS_BC_COEF`）后也只有 20–50%。
+
+上机见 [`models/README.md`](models/README.md)。
 
 ### 在另一台机器上训练
 
@@ -139,7 +142,7 @@ uv run --frozen python ../../jduck_tools/hw_chain_eval.py jduck_mytry.onnx      
    ```bash
    python3 jduck_tools/jduck_run.py --port /dev/ttyS3 --policy jduck_xxx.onnx --imu-config jduck_tools/imu.yaml --dry-run
    ```
-   加 `--getup-policy models/jduck_getup_jsu14.onnx` 摔倒后会自己爬起来（只配修改版固件 K=8 的模型），先在软垫上手扶着试。
+   用 `models/jduck_velstand_d1.onnx` + `--max-tilt 180`，摔倒后会自己爬起来（只配修改版固件 K=8），先在软垫上手扶着试。
 
 ## 重要约定
 

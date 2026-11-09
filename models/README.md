@@ -7,6 +7,7 @@
 | `jduck_O1_orig_full.onnx` | **原版**（`firmware/stock/send_rev_230400_ult.ino`，朋友烧的那版） | 不用设，固件写死 | 固件改不了的时候 |
 | `jduck_N1_k8_calm0.3_caps5.onnx` | **修改版**（`firmware/ubt12hc_pd/`） | **KP=8 FF=0 DB=0**，上机前先设 | 能烧修改版固件的时候 |
 
+| `jduck_velstand_d1.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **推荐**：一个策略同时会走、会站、摔倒自己爬起来（VelStand） |
 | `jduck_getup_jsu14.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **摔倒后自己爬起来**，配 N1 用（见下） |
 
 两个走路模型和起身模型都用**旧 HOME**（hip_pitch ±0.25、knee ∓0.30、ankle ±0.05），HOME 存在 ONNX 元数据里，`jduck_run.py` 会自己读。
@@ -24,7 +25,14 @@ python3 jduck_tools/servo_params.py --port /dev/ttyS3 set --all --kp 8 --ff 0 --
 python3 jduck_tools/jduck_run.py --port /dev/ttyS3 --policy models/jduck_N1_k8_calm0.3_caps5.onnx \
     --imu-config jduck_tools/imu.yaml --dry-run
 ```
-走路 + 摔倒自己爬起来（N1 + 起身模型，`--getup-policy`）：
+走路 + 摔倒自己爬起来，单个策略（推荐）：
+```bash
+python3 jduck_tools/jduck_run.py --port /dev/ttyS3 --policy models/jduck_velstand_d1.onnx \
+    --imu-config jduck_tools/imu.yaml --max-tilt 180 --dry-run
+```
+`--max-tilt 180` 关掉倾斜卸力保护（否则一摔就卸力，没机会爬起来）。
+
+或者用两个策略切换（N1 + 起身模型，`--getup-policy`，效果和上面差不多，留作对照）：
 ```bash
 python3 jduck_tools/jduck_run.py --port /dev/ttyS3 --policy models/jduck_N1_k8_calm0.3_caps5.onnx \
     --getup-policy models/jduck_getup_jsu14.onnx --imu-config jduck_tools/imu.yaml --dry-run
@@ -63,6 +71,24 @@ uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jdu
   仿真里关节摩擦越大越安静，真机齿轮箱的摩擦应该比仿真默认值（0.01 N·m）大，可能会比这里好。
 - **N1** 站得更稳，但后退会自转。
 - 两个都还**没在真机上跑过**。
+
+## 会走会爬起来的单策略 `jduck_velstand_d1.onnx`（2026-11-10）
+
+用 `scripts/getup/distill_switch.py` 把“N1 走路 + 起身模型 + 切换规则”蒸馏成一个策略（DAgger，在 VelStand 训练环境里，
+带随机推倒、各种躺姿出生、舵机随机化）。直接用 PPO 练 VelStand（microduck 的配方）练了 7 轮都不行：
+起身动作对 0.03 rad 的误差就很敏感，PPO + BC 只能模仿到 ~0.08 rad。
+
+| 项目（真机控制链路仿真，修改版固件 K=8） | `jduck_velstand_d1` | N1 |
+|---|---|---|
+| 趴着 / 仰着 / 侧躺起身 | 4/4、4/4、4/4（0.7 / 1.1 / 0.7 s） | 起不来 |
+| 走 0.15 m/s，每 6 s 推一下，30 s | 摔 12 次爬起 12 次，前进 +2.00 m | — |
+| 零速：目标每步变化 / 腿速度 | 0.324° / 0.0065 rad/s | 0.324° / 0.0102 |
+| 零速 K=6 / K=10 | 0.335° / 0.351° | — |
+| 前进 0.2 m/s（理想 +3.0 m） | +2.34 m，偏航 +33° | +2.43 m，偏航 +18° |
+| 后退 0.2 m/s | −0.76 m，偏航 −116° ⚠ 会自转（同 N1） | −0.88 m，偏航 −112° |
+| 原地转 0.8 rad/s（理想 +688°） | +744° | +734° |
+
+训练环境里（`getup_eval.py`，128 个环境、带随机化）：站 100%、蹲 100%、趴 100%、仰 100%、侧躺 99%。
 
 ## 起身模型 `jduck_getup_jsu14.onnx`（2026-11-10）
 

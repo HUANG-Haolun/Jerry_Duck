@@ -38,12 +38,14 @@ class SimRobot:
     FW_PD = dict(K=16, FF=0, floor=0, DB=0, timeout_ms=200, params=True)   # firmware/ubt12hc_pd defaults
 
     def __init__(self, cal: Calibration, servo_map: dict[str, int], home_q: np.ndarray,
-                 stall=0.96, no_load=4.8, seed=0, fw=None):
+                 stall=0.96, no_load=4.8, seed=0, fw=None, friction=None):
         self.m = mujoco.MjModel.from_xml_path(str(SCENE))
         self.m.opt.timestep = 0.001                     # = firmware rate
         self.d = mujoco.MjData(self.m)
         self.qa = np.array([self.m.jnt_qposadr[self.m.joint(j).id] for j in JOINTS])
         self.va = np.array([self.m.jnt_dofadr[self.m.joint(j).id] for j in JOINTS])
+        if friction is not None:                        # gearbox Coulomb friction, N·m (JDUCK_FRICTION)
+            self.m.dof_frictionloss[self.va] = friction
         self.k = cal.k_rad_per_count
         self.cal = [cal.joints[j] for j in JOINTS]
         self.by_id = {servo_map[j]: i for i, j in enumerate(JOINTS)}

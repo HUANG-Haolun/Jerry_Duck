@@ -5,9 +5,14 @@ Re-run whenever the URDF changes:
     cd third_party/microduck_rl
     uv run --frozen python ../../jduck_mjcf/build_mjcf.py
 
-The output follows microduck_rl's "walk" collision family. Only the feet collide
+robot_walk.xml follows microduck_rl's "walk" collision family. Only the feet collide
 with the floor. Legs and torso keep mesh geoms that collide with each other
 (self-collision sensor) but not with the floor. Everything else is visual only.
+
+robot_groundcontact.xml (+ scene_groundcontact.xml) is the same robot plus a
+`<link>_ground_collision` mesh copy of the torso, hip-pitch, knee and head links that
+also collides with the floor, like microduck's "groundcontact" family. It is for tasks
+where the body can touch the ground (sit/stand, falls). Walking keeps robot_walk.xml.
 
 Names follow what microduck_rl's training code hard-codes, so its velocity
 recipe can be reused unchanged:
@@ -36,6 +41,16 @@ OUT_ROBOT = HERE / "robot_walk.xml"
 OUT_SCENE = HERE / "scene_walk.xml"
 OUT_VIEW_ROBOT = HERE / "robot_walk_view.xml"
 OUT_VIEW_SCENE = HERE / "scene_view.xml"
+OUT_GC_ROBOT = HERE / "robot_groundcontact.xml"
+OUT_GC_SCENE = HERE / "scene_groundcontact.xml"
+
+# Links that also get a floor-colliding mesh copy in robot_groundcontact.xml (what can
+# touch the ground in a squat, a sit or a fall). contype/conaffinity bit 1 = the floor;
+# bit 2 is kept so they still count in the self-collision sensor.
+GROUND_CONTACT_LINKS = {
+    "base_link", "left_hip_pitch_link", "left_knee_link", "right_hip_pitch_link", "right_knee_link",
+    "neck_pitch_link", "head_pitch_link",
+}
 VIEW_KP = 8.0
 VIEW_KD = 0.2
 
@@ -132,10 +147,15 @@ def build() -> None:
             if g.contype == 0 and g.conaffinity == 0:
                 g.classname = vis
                 g.contype, g.conaffinity, g.group, g.density = 0, 0, 2, 0
-            elif urdf_name in SELF_COLLISION_LINKS:
-                g.classname = selfc
-                g.contype, g.conaffinity, g.group, g.density = 2, 2, 3, 0
-                g.name = f"{body.name}_self_collision"
+            elif urdf_name in SELF_COLLISION_LINKS or urdf_name in GROUND_CONTACT_LINKS:
+                if urdf_name in SELF_COLLISION_LINKS:
+                    g.classname = selfc
+                    g.contype, g.conaffinity, g.group, g.density = 2, 2, 3, 0
+                    g.name = f"{body.name}_self_collision"
+                else:                       # head links: kept only for the groundcontact model
+                    g.classname = selfc
+                    g.contype, g.conaffinity, g.group, g.density = 0, 0, 3, 0
+                    g.name = f"{body.name}_ground_collision"
             else:
                 spec.delete(g)
         for j in body.joints:
@@ -196,6 +216,45 @@ def build() -> None:
     # overlap at the hip in the CAD mesh and would always report contact.
     for side in ("left", "right"):
         spec.add_exclude(bodyname1="trunk_base", bodyname2=f"{side}_hip_pitch_link")
+
+    # --- groundcontact variant: written before the viewer actuators are added -------
+    gc = spec.copy()
+    for b in gc.bodies:
+        for g in list(b.geoms):
+            urdf_link = None
+            if g.name.endswith("_self_collision"):
+                urdf_link = g.name[: -len("_self_collision")]
+                base = urdf_link
+            elif g.name.endswith("_ground_collision"):
+                base = g.name[: -len("_ground_collision")]
+                g.contype, g.conaffinity = 1, 1          # head shells: floor only
+                continue
+            else:
+                continue
+            urdf_name = "base_link" if base == "trunk_base" else base
+            if urdf_name in GROUND_CONTACT_LINKS:
+                twin = b.add_geom()
+                twin.name = f"{base}_ground_collision"
+                for attr in ("type", "meshname", "pos", "quat", "size"):
+                    setattr(twin, attr, getattr(g, attr))
+                twin.contype, twin.conaffinity, twin.group, twin.density = 1, 1, 3, 0
+                twin.condim = 3
+                twin.rgba = (0.8, 0.4, 0.2, 0.3)
+    # bodies that touch each other at the joints would report floor-type contacts with
+    # each other too (bit 1 on both sides); exclude the adjacent pairs that overlap.
+    for side in ("left", "right"):
+        gc.add_exclude(bodyname1=f"{side}_hip_pitch_link", bodyname2=f"{side}_knee_link")
+    gc.modelname = "jduck_groundcontact"
+    gc_model = gc.compile()
+    OUT_GC_ROBOT.write_text(gc.to_xml())
+    OUT_GC_SCENE.write_text(SCENE_TEMPLATE.replace("robot_walk.xml", OUT_GC_ROBOT.name))
+    print(f"wrote {OUT_GC_ROBOT}  ngeom={gc_model.ngeom} (floor-colliding: "
+          f"{sum(1 for i in range(gc_model.ngeom) if gc_model.geom_contype[i] & 1)})")
+    # the head shells were only kept for the groundcontact copy: drop them from the walk model
+    for b in spec.bodies:
+        for g in list(b.geoms):
+            if g.name.endswith("_ground_collision"):
+                spec.delete(g)
 
     # robot_walk.xml has NO actuators: mjlab's actuator cfg (jduck_constants)
     # creates them, and a duplicate name would fail to compile.

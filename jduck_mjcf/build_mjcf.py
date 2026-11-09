@@ -43,6 +43,8 @@ OUT_VIEW_ROBOT = HERE / "robot_walk_view.xml"
 OUT_VIEW_SCENE = HERE / "scene_view.xml"
 OUT_GC_ROBOT = HERE / "robot_groundcontact.xml"
 OUT_GC_SCENE = HERE / "scene_groundcontact.xml"
+OUT_GC_VIEW_ROBOT = HERE / "robot_groundcontact_view.xml"
+OUT_GC_VIEW_SCENE = HERE / "scene_groundcontact_view.xml"
 
 # Links that also get a floor-colliding mesh copy in robot_groundcontact.xml (what can
 # touch the ground in a squat, a sit or a fall). contype/conaffinity bit 1 = the floor;
@@ -280,6 +282,20 @@ def build() -> None:
     OUT_VIEW_ROBOT.write_text(spec.to_xml())
     OUT_VIEW_SCENE.write_text(SCENE_TEMPLATE.replace("robot_walk.xml", OUT_VIEW_ROBOT.name))
     print(f"wrote {OUT_VIEW_SCENE} (with {len(SERVO_JOINTS)} viewer actuators)")
+
+    # groundcontact + the same viewer actuators (infer_policy.py --sitstand, CPU rollouts)
+    for jn in SERVO_JOINTS:
+        gc.add_actuator(
+            name=jn, target=jn, trntype=mujoco.mjtTrn.mjTRN_JOINT,
+            gaintype=mujoco.mjtGain.mjGAIN_FIXED, gainprm=[VIEW_KP] + [0] * 9,
+            biastype=mujoco.mjtBias.mjBIAS_AFFINE, biasprm=[0, -VIEW_KP, -VIEW_KD] + [0] * 7,
+            ctrllimited=1, ctrlrange=gc.joint(jn).range,
+            forcelimited=1, forcerange=(-0.8, 0.8),
+        )
+    gc.compile()
+    OUT_GC_VIEW_ROBOT.write_text(gc.to_xml())
+    OUT_GC_VIEW_SCENE.write_text(SCENE_TEMPLATE.replace("robot_walk.xml", OUT_GC_VIEW_ROBOT.name))
+    print(f"wrote {OUT_GC_VIEW_SCENE}")
 
 
 SCENE_TEMPLATE = """<mujoco model="jduck scene">

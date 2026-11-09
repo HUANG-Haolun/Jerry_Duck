@@ -16,6 +16,7 @@
 rl_control/
 ├── jduck_description/   机器人模型（ROS 2 包）：URDF、STL、RViz 启动文件
 ├── jduck_mjcf/          MuJoCo 模型，由 build_mjcf.py 从 URDF 生成（不要手改 XML）
+├── models/              上机用的 ONNX 模型和说明（哪个模型配哪个固件、测评结果）
 ├── jduck_tools/         真机端：舵机协议、关节标定、IMU、50 Hz 控制程序、仿真替身
 ├── firmware/
 │   ├── ubt12hc_pd/      修改版舵机固件（线性 P 控制律、参数可在线调、通信超时）
@@ -42,10 +43,11 @@ cd rl_control/third_party/microduck_rl && git checkout jduck
 
 ```bash
 cd third_party/microduck_rl
-uv run --frozen scripts/infer_policy.py --robot jduck --walking jduck_r2_old_sar5_ema05.onnx \
-    --jduck-fw 16,0,0 --jduck-torque 0.96 --jduck-noload 4.8
+uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jduck_O1_orig_full.onnx \
+    --jduck-fw orig --jduck-torque 0.96 --jduck-noload 4.8
 ```
-方向键控制前后左右，A / E 原地转，空格停。ONNX 文件不进 git，用下面“训练”一节的命令自己导出。
+方向键控制前后左右，A / E 原地转，空格停。`--jduck-fw` 必须和模型训练时的舵机固件一致，
+每个模型该配什么见 [`models/README.md`](models/README.md)。
 
 ### 看模型
 

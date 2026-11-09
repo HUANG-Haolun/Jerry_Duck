@@ -11,6 +11,8 @@ Run it with the system python (pyserial + pyyaml), e.g. from rl_control/:
     python3 jduck_tools/calibrate.py report                               # summary + URDF ranges (no port)
     python3 jduck_tools/calibrate.py apply                                # write ranges into the URDF
     python3 jduck_tools/calibrate.py --port /dev/ttyUSB0 verify left_knee # powered: small +/- move
+    python3 jduck_tools/calibrate.py --port /dev/ttyUSB0 friction --id 9  # static friction (modified fw)
+    python3 jduck_tools/calibrate.py --port /dev/ttyUSB0 drop left_knee   # relaxed: does it fall by itself?
 
 Everything except `verify` keeps the motors OFF (CMD 0x03), so you can move the
 joints by hand. `verify` turns ONE servo on and nudges it ±5° around where it
@@ -436,6 +438,110 @@ def cmd_speed_test(args, bus: ServoBus) -> None:
         print("  表是用左膝、ADC 264↔818 标的；其它关节/行程会有偏差。")
 
 
+def cmd_friction(args, bus: ServoBus) -> None:
+    """Static friction of one servo's gearbox, measured with the servo itself.
+
+    Needs the MODIFIED firmware (firmware/ubt12hc_pd). It sets KP=1 FF=0 DB=0, so the
+    motor PWM equals the position error in ADC counts. Then it asks for a big step
+    (--step counts) and lets the joint settle: it stops where the motor torque has
+    dropped to the static friction, so the error left over (counts = PWM) gives the
+    friction: τ ≈ leftover/255 × stall torque. Both directions, --reps times.
+    In the sim stand-in this reads 0.011/0.030/0.049/0.079/0.098 N·m for true
+    0.01/0.03/0.05/0.08/0.10. Run it with the horn free (servo off the robot, or a joint
+    with no load on it). The original KP/FF/DB are restored at the end."""
+    import servo_params as sp
+    from servo_params import get_all
+
+    sid = args.id
+    old = get_all(bus, sid)
+    if old is None:
+        print("读不到参数：这个舵机不是修改版固件（firmware/ubt12hc_pd），friction 用不了。\n"
+              "原版固件可以用 `drop` 子命令粗估摩擦。")
+        return
+    r = bus.relax(sid)
+    if r is None:
+        print("无应答。")
+        return
+    print(f"ID {sid} 现在参数 {sp.fmt(old)}。测试时临时改成 KP=1 FF=0 DB=0，结束后恢复。")
+    print(f"⚠ 舵盘要能自由转 ±{args.step * 0.3516:.0f}°（最好拆下来单测，或者关节下面没有负载）。")
+    if input("继续？[y/N] ").strip().lower() != "y":
+        return
+    results = []
+    try:
+        for name, val in (("kp", 1), ("ff", 0), ("db", 0)):
+            if not sp.set_param(bus, sid, name, val):
+                print(f"设置 {name}={val} 失败，停止。")
+                return
+        cur = r.pos
+        for rep in range(args.reps):
+            for sign in (+1, -1):
+                tgt = max(60, min(940, cur + sign * args.step))
+                rr = hold_target(bus, sid, tgt, args.settle)
+                if rr is None:
+                    print("  无应答，跳过")
+                    continue
+                left = abs(tgt - rr.pos)
+                moved = abs(rr.pos - cur)
+                tag = "正" if sign > 0 else "反"
+                if moved < 3:
+                    print(f"  第 {rep + 1} 次 {tag}向: 几乎没动（{moved} 刻度）→ 静摩擦 > {args.step / 255 * args.stall:.3f} N·m，"
+                          f"加大 --step 再测")
+                else:
+                    tau = left / 255 * args.stall
+                    results.append(tau)
+                    print(f"  第 {rep + 1} 次 {tag}向: 转了 {moved} 刻度，停在差 {left} 刻度处 → 静摩擦 ≈ {tau:.3f} N·m")
+                cur = rr.pos
+    finally:
+        for name in ("kp", "ff", "db"):
+            sp.set_param(bus, sid, name, old[name])
+        bus.relax(sid)
+        print(f"已恢复 {sp.fmt(get_all(bus, sid) or old)}，已卸力。")
+    if results:
+        results.sort()
+        med = results[len(results) // 2]
+        print(f"\n静摩擦中位数 ≈ {med:.3f} N·m（{len(results)} 次，范围 {results[0]:.3f}–{results[-1]:.3f}）")
+        print(f"→ 训练时 JDUCK_FRICTION={med:.2f}（仿真默认 0.01；0.08 时原版固件学不会迈步）")
+        print("  PWM→力矩按堵转力矩线性换算；电机在很低 PWM 下不完全线性，当作量级参考。")
+
+
+def cmd_drop(args, bus: ServoBus) -> None:
+    """Rough static-friction check with NO special firmware: relax every servo, hold the
+    robot by the trunk with the leg hanging, lift the named joint's segment to horizontal
+    and let go. If it stays put, friction ≥ the segment's gravity torque (table below,
+    from the MJCF masses); if it falls, friction is below it. The ADC readout shows how
+    far it sagged."""
+    torque = {"hip_pitch": 0.094, "knee": 0.044, "ankle": 0.006, "hip_roll": 0.154}
+    servo_map = load_servo_map(args.map)
+    sid = servo_map[args.name]
+    part = next((k for k in torque if k in args.name), None)
+    print(f"{args.name}（ID {sid}）卸力。抓住躯干，让这条腿悬空，把这一节扶到水平再松手。")
+    if part:
+        print(f"这一节水平时自身重力力矩约 {torque[part]:.3f} N·m（下游质量 × 重心离轴距离）。"
+              f"\n  停住不动 → 静摩擦 ≥ {torque[part]:.3f}；慢慢往下滑 → 接近这个值；直接掉下去 → 明显小于它。")
+    print("空格记下起点，再按一次看松手后掉了多少；q 退出。")
+    start = None
+    try:
+        with raw_keys():
+            while True:
+                r = bus.relax(sid)
+                pos = r.pos if r else None
+                extra = f"  距起点 {abs(pos - start) * 0.3516:5.1f}°" if (start is not None and pos is not None) else ""
+                status_line(f"ADC {pos}{extra}")
+                k = key_pressed()
+                if k == " ":
+                    if start is None:
+                        start = pos
+                    else:
+                        print(f"\n松手后掉了 {abs(pos - start) * 0.3516:.1f}°")
+                        start = None
+                elif k in ("q", "Q"):
+                    break
+                time.sleep(0.05)
+    finally:
+        bus.relax(sid)
+        print()
+
+
 # ---------------------------------------------------------------- main
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -466,6 +572,14 @@ def main() -> None:
     s.add_argument("--fit-window", type=float, default=0.03, help="求峰值速度的滑动拟合窗口（秒）")
     s.add_argument("--reps", type=int, default=3)
     s.add_argument("--window", type=float, default=2.0, help="每次运动记录多少秒")
+    s = sub.add_parser("friction", help="测舵机静摩擦（需要修改版固件）")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--reps", type=int, default=3)
+    s.add_argument("--step", type=int, default=60, help="每次往外走多少 ADC 刻度（默认 60 ≈ 21°）")
+    s.add_argument("--settle", type=float, default=2.0, help="每次等多久让关节停稳（秒）")
+    s.add_argument("--stall", type=float, default=0.96, help="堵转力矩 N·m（7.4 V 官方规格）")
+    s = sub.add_parser("drop", help="卸力松手看关节会不会自己掉（任何固件都能用）")
+    s.add_argument("name", choices=JOINTS)
     s = sub.add_parser("verify", help="上电小幅动一下，检查方向（先吊起来）")
     s.add_argument("name", choices=JOINTS)
     s.add_argument("--step-deg", type=float, default=5.0)
@@ -485,7 +599,8 @@ def main() -> None:
                  "检查：USB 是否插好（ls /dev/ttyUSB* /dev/ttyACM*）、用户是否在 dialout 组。")
     with bus:
         {"scan": cmd_scan, "monitor": cmd_monitor, "measure-k": cmd_measure_k,
-         "joint": cmd_joint, "verify": cmd_verify, "speed-test": cmd_speed_test}[args.cmd](args, bus)
+         "joint": cmd_joint, "verify": cmd_verify, "speed-test": cmd_speed_test,
+         "friction": cmd_friction, "drop": cmd_drop}[args.cmd](args, bus)
 
 
 if __name__ == "__main__":

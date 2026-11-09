@@ -99,3 +99,29 @@ cd third_party/microduck_rl && uv run --frozen python ../../jduck_mjcf/build_mjc
 然后需要重找 HOME 站姿（`jduck_constants.py`）并重新训练。
 
 **拆装过舵盘的关节必须重新标定。**
+
+## 测关节静摩擦
+
+仿真里的关节摩擦（`JDUCK_FRICTION`）对能不能学会迈步、站着抖不抖影响很大，要用实测值。
+
+**修改版固件**（精确）：
+```bash
+python3 jduck_tools/calibrate.py --port /dev/ttyUSB0 friction --id 9
+```
+临时把 KP 改成 1（PWM = 误差刻度数），让舵机往外走 60 个刻度，看它停在差几个刻度的地方：
+剩下的误差就是刚好推不动摩擦的 PWM，换算成力矩。正反两个方向各测 3 次，结束后自动恢复原来的参数。
+舵盘要能自由转，最好拆下来单测。
+
+**原版固件**（粗估，不用任何工具）：
+```bash
+python3 jduck_tools/calibrate.py --port /dev/ttyUSB0 drop left_knee
+```
+全部卸力，抓住躯干让腿悬空，把这一节扶到水平后松手，看它会不会自己掉下来：
+| 关节 | 这一节水平时的重力力矩 |
+|---|---|
+| hip_roll | 0.154 N·m |
+| hip_pitch | 0.094 N·m |
+| knee | 0.044 N·m |
+| ankle | 0.006 N·m |
+
+停住不动，说明静摩擦大于这个值；慢慢往下滑，说明接近这个值；直接掉下来，说明明显小于它。

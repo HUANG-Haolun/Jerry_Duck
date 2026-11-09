@@ -40,6 +40,14 @@ def get_all(bus: ServoBus, sid: int) -> dict[str, int] | None:
     return out
 
 
+def set_param(bus: ServoBus, sid: int, name: str, value: int) -> bool:
+    """Set one parameter in RAM (not saved). True if the servo echoed the new value."""
+    lo, hi = LIMITS[name]
+    v = max(lo, min(hi, int(value)))
+    r = bus.transact(sid, CMD_SET_PARAM, (PARAMS[name] << 8) | v)
+    return r is not None and r.speed_dps == v
+
+
 def fmt(p: dict[str, int]) -> str:
     t = p["timeout"]
     return (f"KP={p['kp']:3d}  FF={p['ff']:3d}  DEADBAND={p['db']:2d}  "

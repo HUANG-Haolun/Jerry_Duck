@@ -100,6 +100,22 @@ uv run --frozen python ../../jduck_tools/hw_chain_eval.py jduck_mytry.onnx      
 之前有好几个策略在它下面完全站得住，换到真机式观测上就会抖，所以**判断能不能上机，要看 `hw_chain_eval.py`**。
 零速时“目标每步变化”要在 0.1° 以下。
 
+### 摔倒后自己爬起来（2026-11-10）
+
+起身策略 `Mjlab-StandUp-Flat-JDuck`（`jduck_standup_env_cfg.py`）。jduck 头又长又重（头+脖子占 36% 质量），
+直接照搬 microduck 的配方怎么练都起不来，最后是这样做出来的：
+
+1. `scripts/getup/cem_env.py`：在训练环境里用 CEM 搜关键帧动作，每个候选在 32 个带随机化、带动作噪声的环境里打分，
+   得到抗扰动的“趴→站”和“仰→趴”两段动作（早先在简化仿真里搜到的动作加 0.03 rad 噪声就全失败）。
+2. `scripts/getup/record_env.py`：带噪声回放、录下成功的状态；`scripts/getup/dagger_getup.py`：用“最近录制状态的下一步动作”当专家做 DAgger。
+3. 从 DAgger 结果接着跑 PPO（`MICRODUCK_WARM_START=1`，`JDUCK_REPLAY_PROB=0.3` 从录制状态出生，`JDUCK_IMIT_W=2` 模仿奖励），
+   1250 次迭代就从趴/仰/侧躺 100% 站起，约 1 s。这就是 `models/jduck_getup_jsu14.onnx`。
+   起身对力矩很敏感，所以用 `JDUCK_TORQUE_DR=0.95,1.15 JDUCK_KP_DR=0.9,1.25`。
+
+上真机现在用“切换”：`jduck_run.py --policy N1 --getup-policy 起身模型`，见 [`models/README.md`](models/README.md)。
+把两者合成一个策略的 `Mjlab-VelStand-Flat-JDuck` 还在练：PPO 的动作噪声必须封顶（`JDUCK_VS_MAX_STD=0.15`），
+否则噪声涨到 0.4、起身全失败，策略就学会趴着不动。
+
 ### 在另一台机器上训练
 
 `third_party/microduck_rl/scripts/jduck_pipeline.sh <名字> 4000 -- JDUCK_...=...` 会依次完成
@@ -123,6 +139,7 @@ uv run --frozen python ../../jduck_tools/hw_chain_eval.py jduck_mytry.onnx      
    ```bash
    python3 jduck_tools/jduck_run.py --port /dev/ttyS3 --policy jduck_xxx.onnx --imu-config jduck_tools/imu.yaml --dry-run
    ```
+   加 `--getup-policy models/jduck_getup_jsu14.onnx` 摔倒后会自己爬起来（只配修改版固件 K=8 的模型），先在软垫上手扶着试。
 
 ## 重要约定
 

@@ -22,7 +22,14 @@ CAPS="JDUCK_CAPS_S=5 JDUCK_CAPS_T=0.5 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3"
 O5="JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3 JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15 JDUCK_CMD=0.12,0.08,0.4 JDUCK_LIN_STD=0.06"
 # O5*: the key-limit speeds (0.08 m/s) earned 85 % of the tracking reward standing still → the policy
 # didn't step. Train on the board's speed range and a tight lin std (standing at 0.08 → 17 %).
+O6="$O5 JDUCK_CMD_CURR=1500"
+# O6*: O5a/O5b never stepped (air_time 0.01 throughout): the tight std removes the gradient before a
+# gait exists. Learn to walk on the default ranges/stds first, switch to the board's at 1500.
 QUEUE=(
+  "O6a|2|$O6"
+  "O6b|1|$O6"
+  "O6c|2|$O6 JDUCK_STAND_QUIET=8"
+  "O6d|3|$O6"
   "O5a|2|$O5"
   "O5b|2|$O5 JDUCK_STAND_QUIET=8"
   "O5c|1|$O5"
@@ -80,7 +87,7 @@ train_script() {   # $1 name $2 seed $3 extra  → writes ~/jduck_ops/$1.sh (sam
 cd ~/rl_control/third_party/microduck_rl
 export PATH=\$HOME/.local/bin:\$PATH WANDB_MODE=offline
 export $BASE $3
-env -u PYTHONPATH uv run --frozen train Mjlab-Velocity-Flat-JDuck --env.scene.num-envs 4096 --agent.max_iterations 4000 \\
+env -u PYTHONPATH uv run --frozen train Mjlab-Velocity-Flat-JDuck --env.scene.num-envs 4096 --agent.max_iterations 5000 \\
     --agent.seed $2 --agent.run-name $1 --agent.logger tensorboard > logs/pipeline/$1.train.log 2>&1
 echo "== done \$(date +%F_%T)" > logs/pipeline/$1.done
 EOF
@@ -92,12 +99,12 @@ export_run() {    # $1 name $2 where(desk|lap) → echoes onnx path
     local exp; exp=$(ssh $R "ls -d $RRL/logs/rsl_rl/jduck_velocity_*/*_$1 | head -1")
     local e; e=$(basename $(dirname "$exp"))
     mkdir -p $RL/logs/rsl_rl/$e
-    rsync -a $R:$RRL/logs/rsl_rl/$e/ $RL/logs/rsl_rl/$e/ --include='*/' --include="*_$1/model_3999.pt" --include="*_$1/params/***" --exclude='*'
+    rsync -a $R:$RRL/logs/rsl_rl/$e/ $RL/logs/rsl_rl/$e/ --include='*/' --include="*_$1/model_4999.pt" --include="*_$1/params/***" --exclude='*'
     d=$RL/logs/rsl_rl/$e/$(basename "$exp")
   else
     d=$(ls -d $RL/logs/rsl_rl/jduck_velocity_*/*_$1 | head -1)
   fi
-  ( cd $RL && scripts/jduck_export.sh "$d" 3999 $OPS/$1_3999.onnx > $OPS/$1_export.log 2>&1 )
+  ( cd $RL && scripts/jduck_export.sh "$d" 4999 $OPS/$1_3999.onnx > $OPS/$1_export.log 2>&1 )
   echo $OPS/$1_3999.onnx
 }
 

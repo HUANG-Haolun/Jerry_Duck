@@ -48,6 +48,8 @@ from servo_bus import CMD_MOVE, ServoBus  # noqa: E402
 
 CONTROL_DT = 0.02
 CMD_DIM = 13
+HEAD_JOINTS = {"neck_pitch", "head_pitch", "head_yaw", "head_roll"}
+FULL_RATE_HEAD_JOINTS = {"head_pitch"}
 
 
 # ---------------------------------------------------------------- policy
@@ -124,22 +126,28 @@ class Joints:
     def _to_q(self, i: int, adc: int) -> float:
         return self.cal[i].to_rad(adc, self.k)
 
-    def read_relaxed(self) -> np.ndarray | None:
+    def read_relaxed(self, q_prev: np.ndarray | None = None,
+                     indices=None) -> np.ndarray | None:
         """Positions in rad, sending CMD 0x03 (motor OFF). Use only while unpowered:
-        before the ramp, and in --dry-run."""
-        q = np.empty(len(JOINTS), np.float32)
-        for i, sid in enumerate(self.ids):
+        before the ramp, and in --dry-run.  Unread joints retain q_prev."""
+        q = np.empty(len(JOINTS), np.float32) if q_prev is None else q_prev.copy()
+        indices = range(len(JOINTS)) if indices is None else indices
+        for i in indices:
+            sid = self.ids[i]
             r = self.bus.relax(sid)
             if r is None:
                 return None
             q[i] = self._to_q(i, r.pos)
         return q
 
-    def move(self, q_target: np.ndarray) -> np.ndarray | None:
-        """Send targets (rad) and return the positions read back from the replies."""
+    def move(self, q_target: np.ndarray, q_prev: np.ndarray | None = None,
+             indices=None) -> np.ndarray | None:
+        """Send selected targets and return positions; unread joints retain q_prev."""
         q_target = np.clip(q_target, self.q_lo, self.q_hi)
-        q = np.empty(len(JOINTS), np.float32)
-        for i, sid in enumerate(self.ids):
+        q = np.empty(len(JOINTS), np.float32) if q_prev is None else q_prev.copy()
+        indices = range(len(JOINTS)) if indices is None else indices
+        for i in indices:
+            sid = self.ids[i]
             adc = int(round(self.cal[i].to_adc(float(q_target[i]), self.k)))
             r = self.bus.transact(sid, CMD_MOVE, max(50, min(950, adc)))
             if r is None:
@@ -244,14 +252,19 @@ def run(args) -> None:
     if switch is not None and np.abs(switch.getup.home - policy.home).max() > 1e-4:
         raise SystemExit("两个策略的 HOME 不一样")
     if args.imu_config:
-        from imu_lsm6dsv16x import Imu
+        import yaml
+        chip = (yaml.safe_load(Path(args.imu_config).read_text()) or {}).get("chip", "LSM6DSV16X")
+        if chip == "ICM42688P":            # the robot's IMU (SPI, /dev/spidev3.0, libjduck_icm.so)
+            from imu_spi_board import Imu
+        else:
+            from imu_lsm6dsv16x import Imu
         imu = Imu.from_config(args.imu_config)
     elif args.dry_run:
         print("⚠ 没有 --imu-config：dry-run 用假的 IMU（水平静止）")
         imu = NoImu()
     else:
         raise SystemExit("真机运行需要 --imu-config")
-    cmds = Commands()
+    cmds = Commands((args.max_vx, args.max_vy, args.max_wz))
     if args.gamepad:
         cmds.open_gamepad(args.gamepad)
 
@@ -266,84 +279,147 @@ def run(args) -> None:
 
     if not args.dry_run:
         print(f"\n⚠ 即将上电，先用 {args.ramp_s:.0f} s 慢慢移到 HOME。机器人要吊起来！")
-        if input("继续？[y/N] ").strip().lower() != "y":
+        if not args.yes and input("继续？[y/N] ").strip().lower() != "y":
             joints.relax_all()
             return
         # ramp to HOME (each reply also gives us the position)
         q_start = q.copy()
         n = max(1, int(args.ramp_s / CONTROL_DT))
-        for i in range(1, n + 1):
-            t0 = time.monotonic()
-            q_new = joints.move(q_start + (home - q_start) * (i / n))
-            if q_new is None:
+        try:
+            for i in range(1, n + 1):
+                t0 = time.monotonic()
+                _, grav_ramp = imu.read()
+                tilt_ramp = math.degrees(math.acos(max(-1.0, min(1.0, -float(grav_ramp[2])))))
+                if tilt_ramp > args.max_tilt:
+                    raise RuntimeError(
+                        f"ramp 时倾斜 {tilt_ramp:.0f}° > {args.max_tilt}°")
+                q_new = joints.move(q_start + (home - q_start) * (i / n))
+                if q_new is None:
+                    raise RuntimeError("ramp 时舵机无应答")
+                q = q_new
+                time.sleep(max(0.0, CONTROL_DT - (time.monotonic() - t0)))
+        except BaseException:
+            try:
                 joints.relax_all()
-                raise SystemExit("ramp 时舵机无应答，已卸力")
-            q = q_new
-            time.sleep(max(0.0, CONTROL_DT - (time.monotonic() - t0)))
+            finally:
+                bus.close()
+            raise
         print("已到 HOME。按方向键/A/E 给速度，空格停，q 退出。")
 
-    # State: `q` is the latest measured position. On hardware it comes from the
-    # replies to last tick's CMD 0x01 (the firmware answers with the ADC read just
-    # before applying the command). `q_old` is the one before it, for qd.
-    log = {k: [] for k in ("t", "dt", "q", "target", "action", "gyro", "grav", "cmd")} if args.log else None
-    q_old, t_old = q.copy(), time.monotonic() - CONTROL_DT
+    # Legs and head_pitch stay at 50 Hz.  ID 2 (head_pitch) oscillates at 25 Hz
+    # on this robot, while the other three head/neck joints are stable there.
+    full_rate_indices = [i for i, name in enumerate(JOINTS)
+                         if name not in HEAD_JOINTS or name in FULL_RATE_HEAD_JOINTS]
+    slow_head_indices = [i for i, name in enumerate(JOINTS)
+                         if name in HEAD_JOINTS and name not in FULL_RATE_HEAD_JOINTS]
+    sample_q = q.copy()
+    sample_t = np.full(len(JOINTS), time.monotonic() - CONTROL_DT)
     qd_f = np.zeros(len(JOINTS), np.float32)
     worst_dt = 0.0
+    loop_times = []
+    LOG = {k: [] for k in ('t', 'el', 't_pol', 'q', 'target', 'raw_action', 'action', 'gyro', 'grav', 'cmd', 'active')}
     tick = 0
+    control_started = time.monotonic()
     try:
         with raw_keys():
             while not cmds.quit:
                 t0 = time.monotonic()
                 cmds.poll()
+                if args.walk_test_vx:
+                    # One conservative forward pulse, then remain at zero speed.
+                    # This is deterministic and safer than a persistent key command.
+                    u = t0 - control_started - args.walk_test_delay_s
+                    ramp = max(0.1, args.walk_test_ramp_s)
+                    hold = max(0.0, args.walk_test_hold_s)
+                    if u <= 0:
+                        vx_test = 0.0
+                    elif u < ramp:
+                        vx_test = args.walk_test_vx * (u / ramp)
+                    elif u < ramp + hold:
+                        vx_test = args.walk_test_vx
+                    elif u < 2 * ramp + hold:
+                        vx_test = args.walk_test_vx * (1 - (u - ramp - hold) / ramp)
+                    else:
+                        vx_test = 0.0
+                    cmds.cmd[:3] = (vx_test, 0.0, 0.0)
                 ang_vel, grav = imu.read()
                 tilt = math.degrees(math.acos(max(-1.0, min(1.0, -float(grav[2])))))
                 if switch is None and tilt > args.max_tilt:
                     print(f"\n倾斜 {tilt:.0f}° > {args.max_tilt}°，卸力停止")
                     break
-                qd_f += policy.qd_ema * ((q - q_old) / max(1e-3, t0 - t_old) - qd_f)
                 qd = qd_f
                 obs = np.concatenate([ang_vel, grav, q - home, qd, last_action, cmds.cmd]).astype(np.float32)
                 if not np.isfinite(obs).all():
                     print("\nobs 有 NaN，卸力停止")
                     break
+                pol = policy
                 if switch is not None:
                     pol = switch.select(tilt, q - home, tick * CONTROL_DT)
                     if pol is switch.getup:
-                        obs[48:] = 0.0                   # the get-up policy is driven at zero command
-                    action = pol(obs).astype(np.float32)
+                        obs[48:] = 0.0                   # the get-up policy runs at zero command
+                raw_action = (np.zeros(len(JOINTS), np.float32) if args.hold_home else
+                              pol(obs).astype(np.float32))
+                if not np.isfinite(raw_action).all() or np.abs(raw_action).max() > args.max_abs_action:
+                    print(f"\n策略输出异常 max|a|={np.abs(raw_action).max():.2f}，卸力停止")
+                    break
+                if args.dry_run or args.hold_home or args.policy_blend_s <= 0:
+                    blend = 1.0
                 else:
-                    action = policy(obs).astype(np.float32)
+                    blend = min(1.0, (tick + 1) * CONTROL_DT / args.policy_blend_s)
+                action = raw_action * blend
+                if args.action_ema > 0:
+                    action = (1 - args.action_ema) * action + args.action_ema * last_action
                 last_action = action
                 target = home + action * policy.action_scale
-                q_new = joints.read_relaxed() if args.dry_run else joints.move(target)
+                phase = tick % args.head_rate_div
+                active = full_rate_indices + slow_head_indices[phase::args.head_rate_div]
+                t_pol = time.monotonic() - t0
+                q_new = (joints.read_relaxed(q, active) if args.dry_run else
+                         joints.move(target, q, active))
                 if q_new is None:
                     print("\n舵机无应答，卸力停止")
                     break
-                if log is not None:
-                    for k, v in (("t", t0), ("dt", t0 - t_old), ("q", q), ("target", target), ("action", action),
-                                 ("gyro", ang_vel), ("grav", grav), ("cmd", cmds.cmd[:3].copy())):
-                        log[k].append(np.array(v, np.float32))
-                q_old, t_old = q, t0
+                sampled_at = time.monotonic()
+                for i in active:
+                    dt_i = max(1e-3, sampled_at - sample_t[i])
+                    raw_qd = (q_new[i] - sample_q[i]) / dt_i
+                    qd_f[i] += policy.qd_ema * (raw_qd - qd_f[i])
+                    sample_q[i] = q_new[i]
+                    sample_t[i] = sampled_at
                 q = q_new
                 tick += 1
                 el = time.monotonic() - t0
+                loop_times.append(el)
+                _m = np.zeros(len(JOINTS), bool); _m[active] = True
+                for _k, _v in (('t', t0), ('el', el), ('t_pol', t_pol), ('q', q), ('target', target),
+                               ('raw_action', raw_action), ('action', action), ('gyro', ang_vel),
+                               ('grav', grav), ('cmd', cmds.cmd[:3].copy()), ('active', _m)):
+                    LOG[_k].append(np.array(_v))
                 worst_dt = max(worst_dt, el)
                 if tick % 50 == 0:
                     sys.stdout.write(
                         f"\rcmd vx={cmds.cmd[0]:+.2f} vy={cmds.cmd[1]:+.2f} wz={cmds.cmd[2]:+.2f} | "
                         f"tilt {tilt:4.1f}° | loop {el * 1000:4.1f} ms (worst {worst_dt * 1000:4.1f}) "
-                        f"| max|a| {np.abs(action).max():.2f}"
-                        + (f" | {'起身' if switch.active is switch.getup else '走路'}" if switch else "") + "   ")
+                        f"| max|a| {np.abs(action).max():.2f}   ")
                     sys.stdout.flush()
+                if args.max_ticks and tick >= args.max_ticks:
+                    break
                 time.sleep(max(0.0, CONTROL_DT - (time.monotonic() - t0)))
+    except KeyboardInterrupt:
+        print("\n收到停止信号，正在卸力")
     finally:
         joints.relax_all()
         bus.close()
-        if log is not None and log["t"]:
+        if LOG['t'] and args.log:
             np.savez(args.log, home=home, joints=np.array(JOINTS), policy=str(args.policy),
-                     **{k: np.stack(v) for k, v in log.items()})
-            print(f"\n已记录 {len(log['t'])} 拍到 {args.log}")
-        print("\n已卸力。最慢一拍 %.1f ms（要 < 20 ms）" % (worst_dt * 1000))
+                     **{k: np.stack(v) for k, v in LOG.items()})
+            print(f"\n已记录 {len(LOG['t'])} 拍到 {args.log}")
+        if loop_times:
+            ms = np.asarray(loop_times) * 1000
+            print("\n已卸力。loop p50 %.1f / p95 %.1f / max %.1f ms（目标 < 20 ms）" %
+                  (np.percentile(ms, 50), np.percentile(ms, 95), ms.max()))
+        else:
+            print("\n已卸力。没有完成控制周期")
 
 
 def main() -> None:
@@ -358,14 +434,37 @@ def main() -> None:
     p.add_argument("--imu-config", type=Path, default=None)
     p.add_argument("--gamepad", default=None, help="例如 /dev/input/js0")
     p.add_argument("--dry-run", action="store_true", help="只读传感器 + 跑策略，不给舵机上电")
-    p.add_argument("--ramp-s", type=float, default=3.0)
-    p.add_argument("--max-tilt", type=float, default=50.0, help="超过就卸力（给了 --getup-policy 时不生效）")
+    p.add_argument("--action-ema", type=float, default=0.0,
+                   help="动作平滑：发出 = (1-a)*新动作 + a*上一拍动作；0 = 关")
     p.add_argument("--log", type=Path, default=None,
-                   help="把每一拍的 q / 目标 / 动作 / IMU / 指令存成 .npz（给 jitter_compare.py 用）")
+                   help="把每一拍的 q / 目标 / 动作 / IMU / 指令存成 .npz（给 jitter_compare.py、real_calib.py 用）")
     p.add_argument("--getup-policy", type=Path, default=None,
-                   help="摔倒（倾斜 > 45°）后切到这个起身策略，站稳后切回 --policy")
+                   help="摔倒（倾斜 > 45°）后切到这个起身策略，站稳后切回 --policy；给了它 --max-tilt 不生效")
+    p.add_argument("--max-ticks", type=int, default=0, help="完成指定控制周期后正常退出；0 表示持续运行")
+    p.add_argument("--head-rate-div", type=int, default=2, choices=[1, 2],
+                   help="头颈分频；2=除 head_pitch 外交替 25 Hz，腿和 head_pitch 仍为 50 Hz")
+    p.add_argument("--ramp-s", type=float, default=3.0)
+    p.add_argument("--hold-home", action="store_true",
+                   help="首次上电测试：慢移到 HOME 后只保持 HOME，不执行策略动作")
+    p.add_argument("--yes", action="store_true", help="已确认安全条件，跳过交互式上电提示")
+    p.add_argument("--policy-blend-s", type=float, default=3.0,
+                   help="上电后用多少秒从 HOME 平滑加入策略输出")
+    p.add_argument("--max-abs-action", type=float, default=5.0,
+                   help="任一策略原始输出超过此值立即卸力")
+    p.add_argument("--max-vx", type=float, default=0.08)
+    p.add_argument("--max-vy", type=float, default=0.05)
+    p.add_argument("--max-wz", type=float, default=0.25)
+    p.add_argument("--walk-test-vx", type=float, default=0.0,
+                   help="一次性前进测试速度；结束后自动回到零速度")
+    p.add_argument("--walk-test-delay-s", type=float, default=6.0)
+    p.add_argument("--walk-test-ramp-s", type=float, default=0.5)
+    p.add_argument("--walk-test-hold-s", type=float, default=1.0)
+    p.add_argument("--max-tilt", type=float, default=50.0, help="超过就卸力（给了 --getup-policy 时不生效）")
     p.add_argument("--limit-margin-deg", type=float, default=5.0)
-    run(p.parse_args())
+    args = p.parse_args()
+    if abs(args.walk_test_vx) > args.max_vx:
+        p.error("abs(--walk-test-vx) must be <= --max-vx")
+    run(args)
 
 
 if __name__ == "__main__":

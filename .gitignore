@@ -8,3 +8,4 @@ firmware/*/build/
 # Claude Code conversation exports
 2026-*-command-message*.txt
 2026-*-urdf.txt
+jduck_tools/libjduck_icm.so

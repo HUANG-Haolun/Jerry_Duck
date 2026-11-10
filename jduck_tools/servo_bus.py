@@ -19,6 +19,8 @@ read a position while moving a joint by hand.
 
 from __future__ import annotations
 
+import os
+import select
 import time
 from dataclasses import dataclass
 
@@ -102,8 +104,16 @@ class ServoBus:
         self.timeout_s = timeout_s
         self.direction = direction
         self.ser = serial.Serial(port, baud, bytesize=8, parity="N", stopbits=1, timeout=0)
+        self.ser.reset_input_buffer()
+        self._rxbuf = b""
         if direction != "none":
             self.ser.rts = direction == "rts-inv"   # idle = receive
+
+    @property
+    def _fast(self) -> bool:
+        """Raw fd + select on the board's UART (no Python 0.3 ms polling sleeps). Ports without
+        a real file descriptor (the tests' FakePort) and RTS direction control keep pyserial."""
+        return self.direction == "none" and os.name == "posix" and hasattr(self.ser, "fileno")
 
     def close(self) -> None:
         self.ser.close()
@@ -117,22 +127,31 @@ class ServoBus:
     def transact(self, servo_id: int, cmd: int, pos: int = 0,
                  timeout_s: float | None = None) -> Reply | None:
         frame = encode_command(servo_id, cmd, pos)
-        self.ser.reset_input_buffer()
         if self.direction != "none":
             self.ser.rts = self.direction == "rts"
-        self.ser.write(frame)
+        if self._fast:
+            # The board UART is a real file descriptor.  Waiting for it with
+            # select avoids Python's 0.3 ms polling sleeps (14 per control tick).
+            os.write(self.ser.fileno(), frame)
+        else:
+            self.ser.write(frame)
         if self.direction != "none":
             self.ser.flush()
             time.sleep(len(frame) * 10 / self.baud)  # last stop bit out of the shifter
             self.ser.rts = self.direction == "rts-inv"
         deadline = time.monotonic() + (self.timeout_s if timeout_s is None else timeout_s)
-        buf = b""
         while time.monotonic() < deadline:
-            chunk = self.ser.read(64)
+            if self._fast:
+                remaining = max(0.0, deadline - time.monotonic())
+                ready, _, _ = select.select([self.ser.fileno()], [], [], remaining)
+                chunk = os.read(self.ser.fileno(), 128) if ready else b""
+            else:
+                chunk = self.ser.read(64)
             if not chunk:
-                time.sleep(0.0003)
+                if not self._fast:
+                    time.sleep(0.0003)
                 continue
-            replies, buf = find_replies(buf + chunk)
+            replies, self._rxbuf = find_replies(getattr(self, "_rxbuf", b"") + chunk)
             for r in replies:
                 if r.servo_id == servo_id:
                     return r

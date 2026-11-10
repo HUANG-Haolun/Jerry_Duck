@@ -126,23 +126,30 @@ uv run --frozen python ../../jduck_tools/hw_chain_eval.py jduck_mytry.onnx      
 
 ## 上真机
 
-全部在 `jduck_tools/` 里，用系统自带的 `python3` 运行（需要 pyserial 和 pyyaml），不需要 ROS 和 uv。
-详细步骤见 [`jduck_tools/README.md`](jduck_tools/README.md) 和 [`firmware/ubt12hc_pd/README.md`](firmware/ubt12hc_pd/README.md)。
+真机端代码全在 `jduck_tools/`，跑在机器人背上的**泰山派**（RK3566，Debian 12）上，不需要 ROS 和 uv。
+详细步骤见 [`jduck_tools/README.md`](jduck_tools/README.md)。
 
-1. **烧固件**：先拿一个舵机试 `firmware/ubt12hc_pd`，然后检查到位精度、有没有嗡嗡响、通信超时后会不会自动卸力。
-   默认参数 KP=16、FF=0、DB=0 和训练时一致。
-   嗡嗡响就改 `--db 1`，停在离目标几个刻度的地方不动就改 `--ff 4`，这两种情况都不用重新训练。
-   超出这个范围就要用新参数重新训练。参数用 `jduck_tools/servo_params.py` 修改。
-2. **确认接线**：`calibrate.py monitor`，然后改 `servo_map.yaml`。
-3. **标定关节**：`calibrate.py joint`，记录零位、方向和范围，再用 `verify` 上电检查方向。
-   零位误差要在 1° 以内，训练时只模拟了 ±0.86° 的编码器偏差。
-   现在的 `calibration.yaml` 是从朋友测的 `joint_limit.txt` 导入的，零位还不可靠。
-4. **IMU**：`imu_lsm6dsv16x.py show`，按实际安装方向修改 `imu.yaml` 里的 `axes`。
-5. **试跑**：先把机器人吊起来跑 `jduck_run.py --dry-run`，只读传感器、跑策略，不上电。没问题再去掉 `--dry-run`。
-   ```bash
-   python3 jduck_tools/jduck_run.py --port /dev/ttyS3 --policy jduck_xxx.onnx --imu-config jduck_tools/imu.yaml --dry-run
-   ```
-   用 `models/jduck_velstand_d1.onnx` + `--max-tilt 180`，摔倒后会自己爬起来（只配修改版固件 K=8），先在软垫上手扶着试。
+**现在的标准流程（2026-11-10）**：
+
+1. **连板子**：USB 转串口接调试串口，`python3 -m serial.tools.miniterm /dev/ttyUSB0 1500000`（Ctrl+] 退出）。
+   板子没有网口；连手机热点后能上外网，但和公司电脑不在一个网段，ssh 不了。
+2. **准备环境（只做一次）**：板子上 `cd /root/Jerry_Duck && jduck_tools/setup_board.sh`。
+   会建 `/userdata/jduck-venv`（离线装 numpy / onnxruntime 等），编译 IMU 读数库，并自检读一次 IMU。
+3. **启动**：机器人扶正后 `jduck_tools/run_robot.sh`（默认 O1、原版固件）；`-m` 换模型，`--hold-home` 只保持 HOME，
+   `--log` 录数据，`-- --dry-run` 不上电。键盘：方向键走，a / e 转，空格停，q 退出。
+4. **新模型先过仿真门槛再上机**：`jduck_tools/calib_stand_eval.py --walk`（用真机数据校准过舵机参数的仿真），
+   零速腿每拍目标变化 < 0.5°，按键速度下各方向不摔、偏航 < 30°，后退能走出 0.6 m。
+
+**硬件现状**：
+- 舵机是**原版固件**（改不了），只能用 `JDUCK_FW=orig` 训练的模型（O1 系列）。修改版固件的 N1 / d1 / 踢球 / 起身模型上不了机。
+- IMU 是 **ICM-42688P（SPI）**，不是 LSM6DSV16X；驱动 `imu_spi_board.py`，配置 `imu_spi.yaml`（轴向、零偏已标定）。
+- `--hold-home` 看真机 HOME 和仿真一致；零位暂时不用重标。
+- 实测（2026-11-10）：控制周期中位 20 ms，每个舵机一问一答 1.29 ms，推理加读 IMU 3.6 ms。
+  O1 零速时腿每拍目标变化 2.8°（仿真里 1.2°），整机有 4 Hz 左右的抖动。按真机数据校准仿真后（舵机更有力、关节更滑、约多 10 ms 延迟）
+  重训的 O2cal 能减少约 1/4，但还在抖，后退还会摔。台式机和笔记本正在按 `scripts/longrun/long_O.sh` 继续练，直到过门槛。
+
+**烧修改版固件（如果以后能改）**：先拿一个舵机试 `firmware/ubt12hc_pd`，见 [`firmware/ubt12hc_pd/README.md`](firmware/ubt12hc_pd/README.md)；
+参数用 `jduck_tools/servo_params.py` 改，KP / FF / DB 要和训练时的 `JDUCK_FW` 一致。
 
 ## 重要约定
 

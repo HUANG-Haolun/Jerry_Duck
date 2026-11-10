@@ -29,7 +29,16 @@ O7="${O6/JDUCK_LIN_STD=0.06/JDUCK_LIN_STD=0.045} JDUCK_ANG_STD=0.12"
 # O7*: O6a/O6b step at low speed now (fwd 0.5 m) but drift 60–110° in yaw and barely strafe:
 # ang std 0.283 keeps 91 % of the yaw reward at a 75°/15 s drift, lin std 0.06 keeps 50 % standing
 # still on a 0.05 m/s strafe. Tighten both after the 1500-iteration switch.
+O8="$O6 JDUCK_ANG_STD=0.12 JDUCK_LIN_REL_W=2"
+# O8*: O7a/O7b (lin std 0.045) kept the yaw straight (−11°) but stopped tracking speed:
+# track_linear_velocity fell 1.2 → 0.26 after the switch, fwd 0.08 walked 0.24 m even in the
+# training env. Keep lin std 0.06 + ang std 0.12, add a RELATIVE-error lin tracking term
+# (standing on a 0.08 command → 0.02, 75 % speed → 0.78).
 QUEUE=(
+  "O8a|2|$O8"
+  "O8b|1|$O8"
+  "O8c|2|$O8 JDUCK_STAND_QUIET=8"
+  "O8d|3|$O8"
   "O7a|2|$O7"
   "O7b|2|$O7 JDUCK_STAND_QUIET=8"
   "O7c|1|$O7"

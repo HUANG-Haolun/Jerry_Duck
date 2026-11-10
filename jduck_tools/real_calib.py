@@ -125,7 +125,7 @@ class Bus(S.SimBus):
 
 
 def run_sim(policy, cal, smap, fw, friction, stall, backlash, extra_delay_ms, wire_s, seed=0, T=25.0, blend_s=0.0,
-            damping=None, no_load=4.8, gyro_noise=0.0):
+            damping=None, no_load=4.8, gyro_noise=0.0, cmd3=(0.0, 0.0, 0.0), fall_deg=45.0):
     robot = make_robot(cal, smap, policy.home, fw, seed, friction, stall, backlash, extra_delay_ms, damping, no_load)
     rng = np.random.default_rng(seed)
     robot.d.qpos[robot.qa] += rng.uniform(-0.01, 0.01, len(robot.qa))
@@ -137,6 +137,8 @@ def run_sim(policy, cal, smap, fw, friction, stall, backlash, extra_delay_ms, wi
     q = joints.move(home)
     sample_q, sample_t = q.copy(), np.full(14, -DT)
     qd_f = np.zeros(14, np.float32); last = np.zeros(14, np.float32); cmd = np.zeros(13, np.float32)
+    cmd[:3] = cmd3
+    x0 = robot.d.qpos[:2].copy(); yaw_acc, yp = 0.0, robot.yaw_deg()
     full = [i for i in range(14) if i not in SLOW_HEAD]
     L = {k: [] for k in ("q", "target", "gyro", "grav", "tilt")}
     for tick in range(int(T / DT)):
@@ -167,9 +169,13 @@ def run_sim(policy, cal, smap, fw, friction, stall, backlash, extra_delay_ms, wi
             L[k].append(np.array(v))
         robot.step(max(0.0, DT - (robot.d.time - t0)))
         L.setdefault("tilt", []).append(robot.tilt_deg())
-        if robot.tilt_deg() > 45:
+        y = robot.yaw_deg(); yaw_acc += (y - yp + 180.0) % 360.0 - 180.0; yp = y
+        if robot.tilt_deg() > fall_deg:
             return None
-    return {k: np.stack(v) for k, v in L.items()}
+    out = {k: np.stack(v) for k, v in L.items()}
+    out["dxy"] = robot.d.qpos[:2] - x0
+    out["yaw"] = yaw_acc
+    return out
 
 
 _W = None

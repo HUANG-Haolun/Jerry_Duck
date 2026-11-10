@@ -67,7 +67,19 @@ def run(policy, cal, smap, fw, cmd3, f, seed=0, T=10.0):
     if f.get("swap_ids"):             # two servos wired to each other's joint
         a_, b_ = f["swap_ids"]; smap_r = dict(smap); smap_r[a_], smap_r[b_] = smap[b_], smap[a_]
     robot = S.SimRobot(cal_r, smap_r, policy.home, fw=dict(fw, K=fw["K"] * f.get("k_mult", 1.0)), seed=seed,
-                       stall=0.96 * f.get("torque", 1.0), zero_offset=zo)
+                       stall=0.96 * f.get("torque", 1.0), zero_offset=zo, friction=f.get("friction"))
+    if f.get("com_dx") or f.get("com_dy") or f.get("head_mass"):
+        import mujoco
+        tb = mujoco.mj_name2id(robot.m, mujoco.mjtObj.mjOBJ_BODY, "trunk_base")
+        robot.m.body_ipos[tb, 0] += f.get("com_dx", 0.0)
+        robot.m.body_ipos[tb, 1] += f.get("com_dy", 0.0)
+        if f.get("head_mass"):
+            for bname in ("head_pitch_link", "head_yaw_link", "head_roll_link"):
+                bid = mujoco.mj_name2id(robot.m, mujoco.mjtObj.mjOBJ_BODY, bname)
+                if bid >= 0:
+                    robot.m.body_mass[bid] *= f["head_mass"]
+                    robot.m.body_inertia[bid] *= f["head_mass"]
+        mujoco.mj_setConst(robot.m, robot.d)
     bus = S.SimBus(robot)
     joints = jduck_run.Joints(bus, cal, smap, math.radians(5))
     imu = FaultImu(robot, f.get("R"), f.get("flip_gz", False), f.get("swap_xy", False), f.get("flip"))
@@ -124,7 +136,29 @@ FAULTS = [
     ("左右髋 yaw 舵机接反", {"swap_ids": ("left_hip_yaw", "right_hip_yaw")}),
     ("左髋 yaw/roll 舵机接反", {"swap_ids": ("left_hip_yaw", "left_hip_roll")}),
 ]
+COM = [
+    ("躯干重心后移 1 cm", {"com_dx": -0.01}),
+    ("躯干重心后移 2 cm", {"com_dx": -0.02}),
+    ("躯干重心前移 2 cm", {"com_dx": 0.02}),
+    ("躯干重心左移 1.5 cm", {"com_dy": 0.015}),
+    ("头重 1.3 倍", {"head_mass": 1.3}),
+    ("头重 1.3 倍 + 重心后移 1 cm", {"head_mass": 1.3, "com_dx": -0.01}),
+    ("重心后移 2 cm + 力矩 85%", {"com_dx": -0.02, "torque": 0.85}),
+]
+COMBOS = [
+    ("关节摩擦 0.05", {"friction": 0.05}),
+    ("关节摩擦 0.10", {"friction": 0.10}),
+    ("摩擦 0.05 + 力矩 85%", {"friction": 0.05, "torque": 0.85}),
+    ("摩擦 0.05 + 零位随机 ±3°", {"friction": 0.05, "zero_rand_deg": 3}),
+    ("力矩 85% + 零位随机 ±3°", {"torque": 0.85, "zero_rand_deg": 3}),
+    ("力矩 85% + 周期 25 ms + 零位 ±3°", {"torque": 0.85, "dt": 0.025, "zero_rand_deg": 3}),
+    ("IMU 前后装歪 5° + 零位 ±3°", {"R": rot("y", 5), "zero_rand_deg": 3}),
+]
 import os
+if os.environ.get("COM"):
+    FAULTS = FAULTS[:1] + COM
+if os.environ.get("COMBO"):
+    FAULTS = FAULTS[:1] + COMBOS
 if os.environ.get("ONLY_NEW"):
     FAULTS = FAULTS[:1] + FAULTS[-8:]
 
@@ -135,8 +169,11 @@ def main():
     p.add_argument("--fw", default="8,0,0")
     p.add_argument("--seeds", type=int, default=2)
     a = p.parse_args()
-    v = [float(x) for x in a.fw.split(",")]
-    fw = dict(S.SimRobot.FW_PD, K=v[0], FF=v[1], DB=v[2], floor=v[3] if len(v) > 3 else 0.0)
+    if a.fw == "orig":                       # stock firmware: pwm = clamp(|err|, 48, 255), deadband 2
+        fw = dict(S.SimRobot.FW_ORIG)
+    else:
+        v = [float(x) for x in a.fw.split(",")]
+        fw = dict(S.SimRobot.FW_PD, K=v[0], FF=v[1], DB=v[2], floor=v[3] if len(v) > 3 else 0.0)
     cal = Calibration.load(HERE / "calibration.yaml")
     smap = load_servo_map(HERE / "servo_map.yaml")
     pol = jduck_run.Policy(a.onnx)

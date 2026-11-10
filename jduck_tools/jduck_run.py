@@ -285,6 +285,7 @@ def run(args) -> None:
     # State: `q` is the latest measured position. On hardware it comes from the
     # replies to last tick's CMD 0x01 (the firmware answers with the ADC read just
     # before applying the command). `q_old` is the one before it, for qd.
+    log = {k: [] for k in ("t", "dt", "q", "target", "action", "gyro", "grav", "cmd")} if args.log else None
     q_old, t_old = q.copy(), time.monotonic() - CONTROL_DT
     qd_f = np.zeros(len(JOINTS), np.float32)
     worst_dt = 0.0
@@ -318,6 +319,10 @@ def run(args) -> None:
                 if q_new is None:
                     print("\n舵机无应答，卸力停止")
                     break
+                if log is not None:
+                    for k, v in (("t", t0), ("dt", t0 - t_old), ("q", q), ("target", target), ("action", action),
+                                 ("gyro", ang_vel), ("grav", grav), ("cmd", cmds.cmd[:3].copy())):
+                        log[k].append(np.array(v, np.float32))
                 q_old, t_old = q, t0
                 q = q_new
                 tick += 1
@@ -334,6 +339,10 @@ def run(args) -> None:
     finally:
         joints.relax_all()
         bus.close()
+        if log is not None and log["t"]:
+            np.savez(args.log, home=home, joints=np.array(JOINTS), policy=str(args.policy),
+                     **{k: np.stack(v) for k, v in log.items()})
+            print(f"\n已记录 {len(log['t'])} 拍到 {args.log}")
         print("\n已卸力。最慢一拍 %.1f ms（要 < 20 ms）" % (worst_dt * 1000))
 
 
@@ -351,6 +360,8 @@ def main() -> None:
     p.add_argument("--dry-run", action="store_true", help="只读传感器 + 跑策略，不给舵机上电")
     p.add_argument("--ramp-s", type=float, default=3.0)
     p.add_argument("--max-tilt", type=float, default=50.0, help="超过就卸力（给了 --getup-policy 时不生效）")
+    p.add_argument("--log", type=Path, default=None,
+                   help="把每一拍的 q / 目标 / 动作 / IMU / 指令存成 .npz（给 jitter_compare.py 用）")
     p.add_argument("--getup-policy", type=Path, default=None,
                    help="摔倒（倾斜 > 45°）后切到这个起身策略，站稳后切回 --policy")
     p.add_argument("--limit-margin-deg", type=float, default=5.0)

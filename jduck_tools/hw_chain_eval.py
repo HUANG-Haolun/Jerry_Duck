@@ -34,8 +34,17 @@ CASES = [("零速", 0, 0, 0), ("前进 0.2", 0.2, 0, 0), ("后退 0.2", -0.2, 0,
 FRICTION = None
 
 
+ZERO_DEG = 0.0       # --zero-offset-deg: random calibration error per joint, uniform ±ZERO_DEG
+
+
+def zero_offsets(seed):
+    if ZERO_DEG <= 0:
+        return None
+    return np.radians(np.random.default_rng(1000 + seed).uniform(-ZERO_DEG, ZERO_DEG, 14))
+
+
 def run(policy, cal, smap, fw, cmd3, seed, T=15.0):
-    robot = S.SimRobot(cal, smap, policy.home, fw=fw, seed=seed, friction=FRICTION)
+    robot = S.SimRobot(cal, smap, policy.home, fw=fw, seed=seed, friction=FRICTION, zero_offset=zero_offsets(seed))
     rng = np.random.default_rng(seed)
     robot.d.qpos[robot.qa] += rng.uniform(-0.01, 0.01, len(robot.qa))   # vary ADC phase / start
     bus = S.SimBus(robot)
@@ -84,9 +93,13 @@ def main():
     p.add_argument("--seeds", type=int, default=3)
     p.add_argument("--friction", type=float, default=None, help="joint friction N·m (JDUCK_FRICTION); default = MJCF value")
     p.add_argument("--k-sweep", default="12,20", help="extra firmware K values for the zero-command check ('' = off)")
+    p.add_argument("--zero-offset-deg", type=float, default=0.0,
+                   help="模拟标定零位误差：每个关节随机 ±X°（每个 seed 不同）")
+    p.add_argument("--zero-only", action="store_true", help="只跑零速")
     a = p.parse_args()
-    global FRICTION
+    global FRICTION, ZERO_DEG
     FRICTION = a.friction
+    ZERO_DEG = a.zero_offset_deg
     if a.fw == "orig":                       # stock firmware: pwm = clamp(|err|, 48, 255), deadband 2
         fw = dict(S.SimRobot.FW_ORIG)
     else:
@@ -96,8 +109,8 @@ def main():
     smap = load_servo_map(HERE / "servo_map.yaml")
     for path in a.onnx:
         policy = jduck_run.Policy(path)
-        print(f"\n=== {path.name}  [真机控制链路, fw {a.fw}{f', 摩擦 {a.friction:g}' if a.friction is not None else ''}, {a.seeds} 次 × 15 s，抖动看 5–15 s]")
-        for name, vx, vy, wz in CASES:
+        print(f"\n=== {path.name}  [真机控制链路, fw {a.fw}{f', 摩擦 {a.friction:g}' if a.friction is not None else ''}{f', 零位误差 ±{a.zero_offset_deg:g}°' if a.zero_offset_deg else ''}, {a.seeds} 次 × 15 s，抖动看 5–15 s]")
+        for name, vx, vy, wz in (CASES[:1] if a.zero_only else CASES):
             rs = [run(policy, cal, smap, fw, (vx, vy, wz), s) for s in range(a.seeds)]
             ok = [r for r in rs if r]
             fell = len(rs) - len(ok)

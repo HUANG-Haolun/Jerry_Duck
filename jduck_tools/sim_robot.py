@@ -39,7 +39,7 @@ class SimRobot:
     FW_PD = dict(K=16, FF=0, floor=0, DB=0, timeout_ms=200, params=True)   # firmware/ubt12hc_pd defaults
 
     def __init__(self, cal: Calibration, servo_map: dict[str, int], home_q: np.ndarray,
-                 stall=0.96, no_load=4.8, seed=0, fw=None, friction=None, scene=None):
+                 stall=0.96, no_load=4.8, seed=0, fw=None, friction=None, scene=None, zero_offset=None):
         self.m = mujoco.MjModel.from_xml_path(str(scene or SCENE))
         self.m.opt.timestep = 0.001                     # = firmware rate
         self.d = mujoco.MjData(self.m)
@@ -47,6 +47,9 @@ class SimRobot:
         self.va = np.array([self.m.jnt_dofadr[self.m.joint(j).id] for j in JOINTS])
         if friction is not None:                        # gearbox Coulomb friction, N·m (JDUCK_FRICTION)
             self.m.dof_frictionloss[self.va] = friction
+        # Calibration error: the servo reports (true angle − zero_offset), i.e. adc_zero is off by
+        # zero_offset/k counts. The robot then holds every target at target + zero_offset.
+        self.zero_offset = np.zeros(len(JOINTS)) if zero_offset is None else np.asarray(zero_offset, float)
         self.k = cal.k_rad_per_count
         self.cal = [cal.joints[j] for j in JOINTS]
         self.by_id = {servo_map[j]: i for i, j in enumerate(JOINTS)}
@@ -60,7 +63,7 @@ class SimRobot:
         # place at HOME, soles on the floor
         d = self.d
         d.qpos[:7] = [0, 0, 0.5, 1, 0, 0, 0]
-        d.qpos[self.qa] = home_q
+        d.qpos[self.qa] = home_q + self.zero_offset
         mujoco.mj_forward(self.m, d)
         sole = min(d.site("left_foot").xpos[2], d.site("right_foot").xpos[2])
         d.qpos[2] = 0.5 - sole + 0.001
@@ -68,7 +71,7 @@ class SimRobot:
         self.rng = np.random.default_rng(seed)
 
     def adc(self, i: int) -> int:
-        return int(round(self.cal[i].to_adc(float(self.d.qpos[self.qa[i]]), self.k)))
+        return int(round(self.cal[i].to_adc(float(self.d.qpos[self.qa[i]] - self.zero_offset[i]), self.k)))
 
     def step(self, seconds: float) -> None:
         for _ in range(max(1, int(round(seconds / self.m.opt.timestep)))):

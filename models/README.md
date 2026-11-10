@@ -4,6 +4,7 @@
 
 | 文件 | 舵机固件 | 舵机参数 | 适合 |
 |---|---|---|---|
+| `jduck_O8d_orig.onnx` | **原版**（朋友烧的那版） | 不用设 | **推荐（2026-11-11）**：原版固件上零速抖动只有 O1 的 1/4，按键速度下各方向都能走 |
 | `jduck_O1_orig_full.onnx` | **原版**（`firmware/stock/send_rev_230400_ult.ino`，朋友烧的那版） | 不用设，固件写死 | 固件改不了的时候 |
 | `jduck_N1_k8_calm0.3_caps5.onnx` | **修改版**（`firmware/ubt12hc_pd/`） | **KP=8 FF=0 DB=0**，上机前先设 | 能烧修改版固件的时候 |
 
@@ -72,6 +73,51 @@ uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jdu
   仿真里关节摩擦越大越安静，真机齿轮箱的摩擦应该比仿真默认值（0.01 N·m）大，可能会比这里好。
 - **N1** 站得更稳，但后退会自转。
 - 两个都还**没在真机上跑过**。
+
+## 原版固件推荐模型 `jduck_O8d_orig.onnx`（2026-11-11）
+
+**上真机：**
+```bash
+cd /root/Jerry_Duck
+jduck_tools/run_robot.sh -m models/jduck_O8d_orig.onnx
+```
+键盘：方向键走，a / e 转，空格停，q 退出。按键速度上限保持默认（vx 0.08、vy 0.05、wz 0.25）：
+**这个模型就是按这个速度范围练的**，按更快的速度（0.2 m/s）会走歪。
+
+**测评（`jduck_tools/calib_stand_eval.py --walk`：用真机零速数据校准过舵机参数的仿真，15 s，4 个随机种子）：**
+
+| 项目 | 标准 | O8d | O1 |
+|---|---|---|---|
+| 零速：腿每拍目标变化 | < 0.5° | **0.46°** | 2.26° |
+| 零速：腿关节实际抖动 | — | 0.36° | 1.20° |
+| 前进 0.08 m/s（理想 +1.2 m） | ≥ 0.6 m，偏航 < 30° | +1.02 m，偏航 +27° | +0.75 m，偏航 −70° |
+| 后退 0.08 m/s（理想 −1.2 m） | ≥ 0.6 m，偏航 < 30° | −1.05 m，偏航 −29° | −0.02 m（不动） |
+| 左移 0.05 m/s（理想 +0.8 m） | ≥ 0.4 m，偏航 < 30° | +0.79 m，偏航 −9° | +0.47 m，偏航 −41° |
+| 右移 0.05 m/s（理想 −0.8 m） | ≥ 0.4 m，偏航 < 30° | −0.71 m，偏航 +20° | −0.22 m，偏航 −68° |
+| 左转 0.25 rad/s（理想 +215°） | 误差 ±30 % | +200° | +212° |
+| 右转 0.25 rad/s（理想 −215°） | 误差 ±30 % | −242° | −317° |
+
+在原默认仿真（`hw_chain_eval.py --fw orig`）里零速每拍目标变化 0.28°（O1 1.21°）。前进、后退的偏航离 30° 的线很近，真机上可能会慢慢偏，需要时用 a / e 修。
+
+**怎么练出来的**（`scripts/longrun/long_O.sh` 的 O8d，seed 3，5000 次迭代，台式机约 75 分钟）：
+```bash
+JDUCK_FW=orig JDUCK_OBS_ADC=1 JDUCK_OBS_LAG=1 JDUCK_HOME=old JDUCK_STAND_QUIET=4 JDUCK_STAND_QUIET_S2=1 JDUCK_ANG_EMA=0.5 \
+JDUCK_KP_DR=0.85,1.15 JDUCK_TORQUE=1.2 JDUCK_NOLOAD=4.8 JDUCK_TORQUE_DR=0.95,1.3 JDUCK_FRICTION=0.005 JDUCK_FRICTION_DR=0,2 \
+JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15 \
+JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3 \
+JDUCK_CMD=0.12,0.08,0.4 JDUCK_LIN_STD=0.06 JDUCK_ANG_STD=0.12 JDUCK_CMD_CURR=1500 JDUCK_LIN_REL_W=2 \
+uv run --frozen train Mjlab-Velocity-Flat-JDuck --env.scene.num-envs 4096 --agent.max_iterations 5000 --agent.seed 3
+```
+和 O1 比，改了这几样（每一样都是前一轮测出来的问题）：
+1. **舵机参数按真机校准**（`real_calib.py`）：力矩 1.2 N·m（随机 ×0.95～1.3）、关节摩擦接近 0、指令延迟 10～30 ms、陀螺噪声 ±0.15。
+2. **零速平滑**（CAPS，`JDUCK_CAPS_*`）：只在零速时约束策略对传感器噪声不敏感。
+3. **速度范围先宽后窄**（`JDUCK_CMD_CURR=1500`）：前 1500 次用 ±0.25 m/s 学会迈步，之后缩到按键范围 ±0.12 / ±0.08 / ±0.4。
+   一开始就用窄范围的话学不会迈步（O5）。
+4. **按相对误差计分的速度奖励**（`JDUCK_LIN_REL_W`）：原来的速度奖励在 0.08 m/s 时站着不动也能拿 85 %，
+   所以以前的模型按键时只是原地挪；只把宽度收窄又会失去梯度（O7）。新奖励看“走到了指令的几成”，站着不动 0.02、走到位 1.0。
+5. **偏航跟踪收紧**（`JDUCK_ANG_STD=0.12`）：原来 15 s 偏 75° 还能拿 91 % 的转向奖励。
+
+完整过程（O3～O9，每一轮哪项没过）见 `~/jduck_ops/long_O/summary.txt`。
 
 ## 会走会爬起来的单策略 `jduck_velstand_d1.onnx`（2026-11-10）
 
@@ -167,5 +213,6 @@ JDUCK_TORQUE=0.96 JDUCK_NOLOAD=4.8
 
 | 文件 | sha256 前 16 位 |
 |---|---|
+| `jduck_O8d_orig.onnx` | `9e79d28fe0273813` |
 | `jduck_O1_orig_full.onnx` | `7420dbe752b462ee` |
 | `jduck_N1_k8_calm0.3_caps5.onnx` | `819f5c276344e9ec` |

@@ -26,6 +26,7 @@ def main():
     p.add_argument("onnx", nargs="+", type=Path)
     p.add_argument("--log", type=Path, default=Path.home() / "jduck_ops" / "stand_O1.npz")
     p.add_argument("--seeds", type=int, default=3)
+    p.add_argument("--seed0", type=int, default=0, help="first seed (re-check with seeds the gate did not use)")
     p.add_argument("--walk", action="store_true", help="also run every walking direction (15 s each)")
     a = p.parse_args()
     cal = Calibration.load(HERE / "calibration.yaml"); smap = load_servo_map(HERE / "servo_map.yaml")
@@ -36,7 +37,7 @@ def main():
     for path in a.onnx:
         pol = jduck_run.Policy(path)
         fs, fell = [], 0
-        for s in range(a.seeds):
+        for s in range(a.seed0, a.seed0 + a.seeds):
             d = R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
                           FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"])
             if d is None:
@@ -50,7 +51,7 @@ def main():
         T = 15.0
         for name, c in WALK_CASES:
             rs = [R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
-                            FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], cmd3=c, T=T) for s in range(a.seeds)]
+                            FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], cmd3=c, T=T) for s in range(a.seed0, a.seed0 + a.seeds)]
             ok = [r for r in rs if r is not None]
             if not ok:
                 print(f"      {name:16s} 全摔 {len(rs)}/{len(rs)}"); continue

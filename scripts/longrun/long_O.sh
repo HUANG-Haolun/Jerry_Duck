@@ -25,7 +25,15 @@ O5="JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3 JDUCK_A
 O6="$O5 JDUCK_CMD_CURR=1500"
 # O6*: O5a/O5b never stepped (air_time 0.01 throughout): the tight std removes the gradient before a
 # gait exists. Learn to walk on the default ranges/stds first, switch to the board's at 1500.
+O7="${O6/JDUCK_LIN_STD=0.06/JDUCK_LIN_STD=0.045} JDUCK_ANG_STD=0.12"
+# O7*: O6a/O6b step at low speed now (fwd 0.5 m) but drift 60–110° in yaw and barely strafe:
+# ang std 0.283 keeps 91 % of the yaw reward at a 75°/15 s drift, lin std 0.06 keeps 50 % standing
+# still on a 0.05 m/s strafe. Tighten both after the 1500-iteration switch.
 QUEUE=(
+  "O7a|2|$O7"
+  "O7b|2|$O7 JDUCK_STAND_QUIET=8"
+  "O7c|1|$O7"
+  "O7d|3|$O7"
   "O6a|2|$O6"
   "O6b|1|$O6"
   "O6c|2|$O6 JDUCK_STAND_QUIET=8"

@@ -8,6 +8,7 @@
 | `jduck_N1_k8_calm0.3_caps5.onnx` | **修改版**（`firmware/ubt12hc_pd/`） | **KP=8 FF=0 DB=0**，上机前先设 | 能烧修改版固件的时候 |
 
 | `jduck_velstand_d1.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **推荐**：一个策略同时会走、会站、摔倒自己爬起来（VelStand） |
+| `jduck_kick_right_k8.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **右脚踢球**（站着时切过去，踢完 3 s 切回走路模型） |
 | `jduck_getup_jsu14.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **摔倒后自己爬起来**，配 N1 用（见下） |
 
 两个走路模型和起身模型都用**旧 HOME**（hip_pitch ±0.25、knee ∓0.30、ankle ±0.05），HOME 存在 ONNX 元数据里，`jduck_run.py` 会自己读。
@@ -97,6 +98,33 @@ uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jdu
     --jduck-fw 8,0,0 --jduck-torque 0.96 --jduck-noload 4.8 --scene ../../jduck_mjcf/scene_groundcontact_view.xml
 ```
 （一定要带 `--scene ...groundcontact...`：默认的走路场景只有脚能碰地，摔倒后身体会穿进地板。）
+
+## 右脚踢球 `jduck_kick_right_k8.onnx`（2026-11-10）
+
+`Mjlab-BallKick-Flat-JDuck`（microduck 原版踢球配方 + jduck 的脚位和舵机），纯 PPO 5000 次迭代，约 100 次迭代就学会了。
+策略**看不见球**：球要摆在右脚尖前约 2 cm（球心在躯干前 9 cm、右侧 6.4 cm），偏差 ±1.5 cm 以内都能踢到。
+球是 70 mm / 15 g 的空心塑料球（类似地板球）。
+
+训练环境里测（`scripts/getup/kick_eval.py`，256 次，推力关闭）：
+
+| 项目 | 结果 |
+|---|---|
+| 踢到球 | 100%，开始后 0.12 s 就踢 |
+| 最大球速 | 中位 1.51 m/s（训练目标 1.0，踢得偏猛） |
+| 球滚出去的距离（5 s 内） | 中位 5.4 m |
+| 方向偏差 | 中位 17°（偏向一侧，不是正前方） |
+| 摔倒 | 0% |
+| 支撑脚离地 | 平均 0.03 s（基本不离地） |
+
+真机控制链路仿真里不放球、零速站 15 s：K=8 时每步目标变化 0.24°，不摔；**K=10 时会抖（1.06°）**，舵机 K 一定要设成 8（或 6）。
+
+键盘玩（终端里按 **L** 放球并踢，3 s 后切回走路模型）：
+```bash
+cd third_party/microduck_rl
+uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jduck_velstand_d1.onnx \
+    --kick-right ../../models/jduck_kick_right_k8.onnx --jduck-fw 8,0,0
+```
+`jduck_run.py` 还不支持按键切到踢球模型，上真机要先补这个功能。
 
 ## 起身模型 `jduck_getup_jsu14.onnx`（2026-11-10）
 

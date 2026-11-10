@@ -45,6 +45,14 @@ OUT_GC_ROBOT = HERE / "robot_groundcontact.xml"
 OUT_GC_SCENE = HERE / "scene_groundcontact.xml"
 OUT_GC_VIEW_ROBOT = HERE / "robot_groundcontact_view.xml"
 OUT_GC_VIEW_SCENE = HERE / "scene_groundcontact_view.xml"
+# groundcontact view + the 70 mm / 15 g kick ball (scripts/infer_policy.py --kick-right/--kick-left)
+OUT_BALL_VIEW_SCENE = HERE / "scene_ball_view.xml"
+BALL_BODY = """    <body name="ball" pos="0.3 0 0.035">
+      <freejoint name="ball_free"/>
+      <inertial pos="0 0 0" mass="0.015" diaginertia="1.225e-5 1.225e-5 1.225e-5"/>
+      <geom type="sphere" name="ball_geom" size="0.035" rgba="1 0.55 0 1" friction="0.5 0.005 0.0001"/>
+    </body>
+  </worldbody>"""
 
 # Links that also get a floor-colliding mesh copy in robot_groundcontact.xml (what can
 # touch the ground in a squat, a sit or a fall). contype/conaffinity bit 1 = the floor;
@@ -296,6 +304,10 @@ def build() -> None:
     OUT_GC_VIEW_ROBOT.write_text(gc.to_xml())
     OUT_GC_VIEW_SCENE.write_text(SCENE_TEMPLATE.replace("robot_walk.xml", OUT_GC_VIEW_ROBOT.name))
     print(f"wrote {OUT_GC_VIEW_SCENE}")
+    ball_scene = SCENE_TEMPLATE.replace("robot_walk.xml", OUT_GC_VIEW_ROBOT.name)
+    assert ball_scene.count("</worldbody>") == 1
+    OUT_BALL_VIEW_SCENE.write_text(ball_scene.replace("  </worldbody>", BALL_BODY))
+    print(f"wrote {OUT_BALL_VIEW_SCENE}")
 
 
 SCENE_TEMPLATE = """<mujoco model="jduck scene">

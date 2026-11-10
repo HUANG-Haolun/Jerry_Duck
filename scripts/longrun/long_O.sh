@@ -34,7 +34,14 @@ O8="$O6 JDUCK_ANG_STD=0.12 JDUCK_LIN_REL_W=2"
 # track_linear_velocity fell 1.2 → 0.26 after the switch, fwd 0.08 walked 0.24 m even in the
 # training env. Keep lin std 0.06 + ang std 0.12, add a RELATIVE-error lin tracking term
 # (standing on a 0.08 command → 0.02, 75 % speed → 0.78).
+O9="${O8/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
+# O9*: O8a/O8b walk at the key speeds now (fwd ~1.0 m, back ~1.1 m, left 0.8–0.9 m, yaw mostly
+# 7–37°); the main blocker is zero-command jitter 0.89–0.93°/tick (gate 0.5). Double the CAPS
+# spatial weight and the zero-command CAPS boost (smoothness only where the jitter shows).
 QUEUE=(
+  "O9a|2|$O9"
+  "O9b|2|$O9 JDUCK_STAND_ACT_RATE=5 JDUCK_SAR_START=2500"
+  "O9c|1|$O9"
   "O8a|2|$O8"
   "O8b|1|$O8"
   "O8c|2|$O8 JDUCK_STAND_QUIET=8"

@@ -5,7 +5,8 @@
 # Gate (jduck_tools/calib_stand_eval.py --walk, calibrated sim = robot replica):
 #   zero cmd: leg target change < 0.5 °/tick, no fall
 #   every direction at the board's key limits (vx 0.08, vy 0.05, wz 0.25): no fall, |yaw| < 30° (turns: within 30 % of ideal)
-#   backward 0.08 m/s: ≥ 0.6 m in 15 s
+#   backward / forward 0.08 m/s: ≥ 0.6 m in 15 s; left / right 0.05 m/s: ≥ 0.4 m (2026-11-10 19:20: O4a stood
+#   still at forward 0.08 and the yaw-only check let it through)
 #
 # Results: ~/jduck_ops/long_O/<name>.eval.txt, summary ~/jduck_ops/long_O/summary.txt,
 # PASS → ~/jduck_ops/long_O/PASS_<name>.onnx and the loop ends on both machines.
@@ -48,9 +49,12 @@ for name, lim in (("前进 0.08", None), ("后退 0.08", None), ("左移 0.05", 
     yaw = float(re.search(r"偏航\s+([+-]?\d+)", line).group(1))
     if lim is None and abs(yaw) >= 30: why.append(f"{name} 偏航 {yaw:+.0f}°")
     if lim is not None and abs(yaw - lim) > 0.3 * abs(lim): why.append(f"{name} 转了 {yaw:+.0f}°（理想 {lim:+d}°）")
-    if name == "后退 0.08":
-        dx = float(re.search(r"dx\s+([+-][\d.]+)", line).group(1))
-        if dx > -0.6: why.append(f"后退只走了 {dx:+.2f} m")
+    dx = float(re.search(r"dx\s+([+-][\d.]+)", line).group(1))
+    dy = float(re.search(r"dy\s+([+-][\d.]+)", line).group(1))
+    if name == "后退 0.08" and dx > -0.6: why.append(f"后退只走了 {dx:+.2f} m")
+    if name == "前进 0.08" and dx < 0.6: why.append(f"前进只走了 {dx:+.2f} m")
+    if name == "左移 0.05" and dy < 0.4: why.append(f"左移只走了 {dy:+.2f} m")
+    if name == "右移 0.05" and dy > -0.4: why.append(f"右移只走了 {dy:+.2f} m")
 print(("PASS" if not why else "FAIL ") + "；".join(why) + f"  [零速 {jit:.2f}°]")
 PY
 }
@@ -130,8 +134,9 @@ first() {      # $1 name $2 where
   evaluate $1 "$(export_run $1 $2)"
 }
 
-log "长程任务开始：O3a（台式机）、O3b（笔记本）已在跑；队列 ${#QUEUE[@]} 个候选"
-( first O3a desk; run_slot desk ) &
-( first O3b lap;  run_slot lap ) &
+DESK_FIRST=${1:-O3a}; LAP_FIRST=${2:-O3b}
+log "长程任务开始：$DESK_FIRST（台式机）、$LAP_FIRST（笔记本）已在跑；队列 ${#QUEUE[@]} 个候选"
+( first $DESK_FIRST desk; run_slot desk ) &
+( first $LAP_FIRST lap;  run_slot lap ) &
 wait
 if [ -f $OUT/PASSED ]; then log "完成：$(ls $OUT/PASS_*.onnx)"; else log "队列全部练完，没有达标的"; fi

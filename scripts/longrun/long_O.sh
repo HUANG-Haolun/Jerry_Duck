@@ -19,7 +19,14 @@ CAPS="JDUCK_CAPS_S=5 JDUCK_CAPS_T=0.5 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3"
 # Queue: name|seed|extra env. Ordered by what the earlier runs suggest is most likely to help:
 #   stronger standing quiet / CAPS (zero-cmd jitter), wider delay + gyro noise (robot robustness),
 #   then different seeds of whatever worked best so far.
+O5="JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3 JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15 JDUCK_CMD=0.12,0.08,0.4 JDUCK_LIN_STD=0.06"
+# O5*: the key-limit speeds (0.08 m/s) earned 85 % of the tracking reward standing still → the policy
+# didn't step. Train on the board's speed range and a tight lin std (standing at 0.08 → 17 %).
 QUEUE=(
+  "O5a|2|$O5"
+  "O5b|2|$O5 JDUCK_STAND_QUIET=8"
+  "O5c|1|$O5"
+  "O5d|3|$O5"
   "O4a|2|$CAPS JDUCK_ACT_DELAY=3,5 JDUCK_STAND_QUIET=8"
   "O4b|2|JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3 JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15"
   "O4c|1|$CAPS JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15"
@@ -128,7 +135,8 @@ PY
   done
 }
 
-first() {      # $1 name $2 where
+first() {      # $1 name $2 where ("-" = nothing running: go straight to the queue)
+  [ "$1" = "-" ] && return
   wait_done $1 $2
   [ -f $OUT/PASSED ] && return
   evaluate $1 "$(export_run $1 $2)"

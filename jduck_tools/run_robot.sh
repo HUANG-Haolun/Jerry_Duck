@@ -12,7 +12,7 @@
 #   --vx/--vy/--wz V     按键速度上限（默认 0.08 / 0.05 / 0.25）
 #   --tilt DEG           倾斜超过就卸力（默认 20）
 #   --ramp S             上电后移到 HOME 用几秒（默认 10）
-#   --blend S            策略输出渐入秒数（默认 5）
+#   --blend S            策略输出渐入秒数（默认 1；5 秒时缩小的策略动作在力矩 0.96 N·m 下连 O1 都会摔）
 #   --hold-home          只保持 HOME，不执行策略
 #   --log PATH           录数据到 .npz
 #   -y, --yes            跳过“继续？[y/N]”确认
@@ -24,7 +24,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
 
 MODEL=models/jduck_O1_orig_full.onnx
-VX=0.08; VY=0.05; WZ=0.25; TILT=20; RAMP=10; BLEND=5
+VX=0.08; VY=0.05; WZ=0.25; TILT=20; RAMP=10; BLEND=1
 EXTRA=()
 while [ $# -gt 0 ]; do
   case "$1" in

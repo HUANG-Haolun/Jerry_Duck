@@ -81,6 +81,7 @@ uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jdu
 cd /root/Jerry_Duck
 jduck_tools/run_robot.sh -m models/jduck_O8d_orig.onnx
 ```
+> ⚠ 2026-11-11 真机上 O8d 会往前倒（站姿弯膝、髋 pitch 不对称，是按偏高的 1.2 N·m 力矩练出来的）。先用 O1，等 O11。
 键盘：方向键走，a / e 转，空格停，q 退出。按键速度上限保持默认（vx 0.08、vy 0.05、wz 0.25）：
 **这个模型就是按这个速度范围练的**，按更快的速度（0.2 m/s）会走歪。
 

@@ -41,11 +41,14 @@ O9="${O8/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
 O10="$O8 JDUCK_TORQUE_DR=0.67,1.33"
 # O10*: O8d (passed at 1.4 N·m) stood leaning back and fell at ≤ 0.96 N·m — its training torque was
 # 1.14–1.56. Train on 0.8–1.6 N·m (1.2 × 0.67–1.33) and gate at 0.9 AND 1.4.
+O11="$O8 JDUCK_TORQUE=0.96"
+# O11*: O8 recipe on the spec-sheet servo (0.96 N·m, default DR 0.8–1.15× like O1). BASE has
+# JDUCK_TORQUE=1.2; the later JDUCK_TORQUE=0.96 wins. Gate at 0.8 and 0.96 + posture ≤ 5°.
 QUEUE=(
-  "O10a|3|$O10"
-  "O10b|2|$O10"
-  "O10c|1|$O10"
-  "O10d|3|${O10/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
+  "O11a|3|$O11"
+  "O11b|2|$O11"
+  "O11c|1|$O11"
+  "O11d|3|${O11/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
 )
 log() { echo "[$(date +%m-%d_%T)] $*" | tee -a $OUT/summary.txt; }
 
@@ -55,6 +58,9 @@ gate() {
 import re, sys
 t = open(sys.argv[1]).read()
 why = []
+pm = re.search(r"站姿 .*最大偏离 ([\d.]+)°", t)
+if pm and float(pm.group(1)) > 5.0:
+    why.append(f"站姿偏离 HOME {float(pm.group(1)):.1f}°>5")   # O8d bent knees ±7–10°, tipped forward
 m = re.search(r"校准仿真 \S+\s+([\d.]+)", t)
 if not m: print("FAIL 没有零速结果"); sys.exit()
 jit = float(m.group(1))
@@ -79,8 +85,8 @@ PY
 
 evaluate() {   # $1 name  $2 onnx — must pass at BOTH servo torques (2026-11-11: O8d passed at 1.4 N·m,
                # leaned back / fell at ≤ 0.96 on the robot)
-  local all=PASS msg=""
-  for st in 0.9 1.4; do
+  local all=PASS msg=""   # 2026-11-11 evening: torque back to the spec sheet (0.96 N·m) — O8d/O10 trained on 1.2 learned a bent-knee stance that tips on the robot
+  for st in 0.8 0.96; do
     ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --seeds 2 --stall $st ) \
         2>&1 | grep -vE "^\s*$|Warn" > $OUT/$1.eval_t$st.txt
     local g; g=$(gate $OUT/$1.eval_t$st.txt)

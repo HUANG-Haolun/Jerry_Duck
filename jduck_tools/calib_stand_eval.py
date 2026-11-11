@@ -41,7 +41,7 @@ def main():
     print(f"{'真机 ' + a.log.name:28s} " + "  ".join(f"{v:10.3f}" for v in R.feats(real)))
     for path in a.onnx:
         pol = jduck_run.Policy(path)
-        fs, fell = [], 0
+        fs, fell, poses = [], 0, []
         for s in range(a.seed0, a.seed0 + a.seeds):
             d = R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
                           FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"])
@@ -49,8 +49,16 @@ def main():
                 fell += 1
             else:
                 fs.append(R.feats(d))
+                dq = np.degrees(d["q"][300:] - pol.home).mean(0)
+                poses.append([dq[2], dq[3], dq[11], dq[12]])
         line = "  ".join(f"{v:10.3f}" for v in np.mean(fs, 0)) if fs else "全摔"
         print(f"{'校准仿真 ' + path.name:28s} {line}" + (f"   摔 {fell}/{a.seeds}" if fell else ""))
+        if poses:
+            # standing posture: mean |q − HOME| of hip_pitch / knee (both legs) after 6 s. 2026-11-11: O8d
+            # stood with knees bent ±4–7° and asymmetric hip pitch, tipped forward on the robot; O1 stands
+            # within ±0.3° of HOME there. Gate: ≤ 3°.
+            P = np.mean(poses, 0)
+            print(f"      站姿 髋pitch 左 {P[0]:+5.1f}° 右 {P[2]:+5.1f}°  膝 左 {P[1]:+5.1f}° 右 {P[3]:+5.1f}°  最大偏离 {np.abs(P).max():.1f}°")
         if not a.walk:
             continue
         T = 15.0

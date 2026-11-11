@@ -56,7 +56,16 @@ O14="$O13 JDUCK_STANCE_W=2"
 # O14*: three stance failures in a row (O12a/O12b/O13a: one hip pitch 7–15° off). The stock pose term averages
 # over 10 leg joints → one joint 12° off keeps 41 % at std 0.07, weight 1. Add a per-joint PRODUCT stance term
 # (hip pitch + knee, std 0.07, zero command only): that joint alone → 0.
+O15="${O14/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
+# O15*: zero-speed jitter failed three times in a row (O14a/b/c: 0.54–0.60° at 0.86 N·m, 0.81–0.88° at 1.25),
+# worse as the stance got tighter (O12 0.36 → O14 0.57). Not the quiet term's S2: the reward sees the sampled
+# action, and with action std 0.25 Σ Δa² ≈ 1.75 is all exploration noise — S2 0.003 would zero it for good.
+# CAPS acts on the policy MEAN: O9a (S20, stand boost 8) was the calmest so far (0.18°). Raise S, boost and T.
 QUEUE=(
+  "O15a|3|$O15"
+  "O15b|1|${O15/JDUCK_CAPS_T=1/JDUCK_CAPS_T=3}"
+  "O15c|2|${O15/JDUCK_CAPS_T=1/JDUCK_CAPS_T=3}"
+  "O15d|3|${O15/JDUCK_CAPS_STAND=8/JDUCK_CAPS_STAND=16}"
   "O14a|3|$O14"
   "O14b|2|$O14"
   "O14c|1|$O14"

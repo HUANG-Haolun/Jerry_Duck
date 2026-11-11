@@ -28,7 +28,12 @@ def main():
     p.add_argument("--seeds", type=int, default=3)
     p.add_argument("--seed0", type=int, default=0, help="first seed (re-check with seeds the gate did not use)")
     p.add_argument("--walk", action="store_true", help="also run every walking direction (15 s each)")
+    p.add_argument("--stall", type=float, default=None,
+                   help="servo stall torque N·m (default = the fit, 1.4). 2026-11-11: O8d passed at 1.4 but "
+                        "leaned back / fell at ≤ 0.96 on the robot — gate at both ends of the plausible range")
     a = p.parse_args()
+    if a.stall is not None:
+        FIT["stall"] = a.stall
     cal = Calibration.load(HERE / "calibration.yaml"); smap = load_servo_map(HERE / "servo_map.yaml")
     real = dict(np.load(a.log, allow_pickle=True))
     wire = float(np.median((real["el"] - real["t_pol"]) / real["active"].sum(1)))

@@ -14,7 +14,7 @@ set -u
 OPS=~/jduck_ops; OUT=$OPS/long_O; mkdir -p $OUT; touch $OUT/.q
 RL=~/rl_control/third_party/microduck_rl
 R=navi@10.229.20.227; RRL=/home/navi/rl_control/third_party/microduck_rl
-BASE="JDUCK_FW=orig JDUCK_OBS_ADC=1 JDUCK_OBS_LAG=1 JDUCK_HOME=old JDUCK_STAND_QUIET=4 JDUCK_STAND_QUIET_S2=1 JDUCK_ANG_EMA=0.5 JDUCK_KP_DR=0.85,1.15 JDUCK_TORQUE=1.2 JDUCK_NOLOAD=4.8 JDUCK_TORQUE_DR=0.95,1.3 JDUCK_FRICTION=0.005 JDUCK_FRICTION_DR=0,2"
+BASE="JDUCK_FW=orig JDUCK_OBS_ADC=1 JDUCK_OBS_LAG=1 JDUCK_HOME=old JDUCK_STAND_QUIET=4 JDUCK_STAND_QUIET_S2=1 JDUCK_ANG_EMA=0.5 JDUCK_KP_DR=0.85,1.15 JDUCK_TORQUE=1.2 JDUCK_NOLOAD=4.8 JDUCK_FRICTION=0.005 JDUCK_FRICTION_DR=0,2"
 CAPS="JDUCK_CAPS_S=5 JDUCK_CAPS_T=0.5 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3"
 # Queue: name|seed|extra env. Ordered by what the earlier runs suggest is most likely to help:
 #   stronger standing quiet / CAPS (zero-cmd jitter), wider delay + gyro noise (robot robustness),
@@ -38,34 +38,14 @@ O9="${O8/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
 # O9*: O8a/O8b walk at the key speeds now (fwd ~1.0 m, back ~1.1 m, left 0.8–0.9 m, yaw mostly
 # 7–37°); the main blocker is zero-command jitter 0.89–0.93°/tick (gate 0.5). Double the CAPS
 # spatial weight and the zero-command CAPS boost (smoothness only where the jitter shows).
+O10="$O8 JDUCK_TORQUE_DR=0.67,1.33"
+# O10*: O8d (passed at 1.4 N·m) stood leaning back and fell at ≤ 0.96 N·m — its training torque was
+# 1.14–1.56. Train on 0.8–1.6 N·m (1.2 × 0.67–1.33) and gate at 0.9 AND 1.4.
 QUEUE=(
-  "O9a|2|$O9"
-  "O9b|2|$O9 JDUCK_STAND_ACT_RATE=5 JDUCK_SAR_START=2500"
-  "O9c|1|$O9"
-  "O8a|2|$O8"
-  "O8b|1|$O8"
-  "O8c|2|$O8 JDUCK_STAND_QUIET=8"
-  "O8d|3|$O8"
-  "O7a|2|$O7"
-  "O7b|2|$O7 JDUCK_STAND_QUIET=8"
-  "O7c|1|$O7"
-  "O7d|3|$O7"
-  "O6a|2|$O6"
-  "O6b|1|$O6"
-  "O6c|2|$O6 JDUCK_STAND_QUIET=8"
-  "O6d|3|$O6"
-  "O5a|2|$O5"
-  "O5b|2|$O5 JDUCK_STAND_QUIET=8"
-  "O5c|1|$O5"
-  "O5d|3|$O5"
-  "O4a|2|$CAPS JDUCK_ACT_DELAY=3,5 JDUCK_STAND_QUIET=8"
-  "O4b|2|JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3 JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15"
-  "O4c|1|$CAPS JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15"
-  "O4d|2|$CAPS JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15 JDUCK_STAND_QUIET=8"
-  "O4e|3|$CAPS JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15"
-  "O4f|2|JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0.3 JDUCK_CAPS_CALM=0.3 JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15 JDUCK_STAND_QUIET=8"
-  "O4g|1|JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3 JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15 JDUCK_STAND_QUIET=8"
-  "O4h|3|JDUCK_CAPS_S=10 JDUCK_CAPS_T=1 JDUCK_CAPS_WALK=0 JDUCK_CAPS_CALM=0.3 JDUCK_ACT_DELAY=2,6 JDUCK_GYRO_NOISE=0.15 JDUCK_STAND_QUIET=8"
+  "O10a|3|$O10"
+  "O10b|2|$O10"
+  "O10c|1|$O10"
+  "O10d|3|${O10/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
 )
 log() { echo "[$(date +%m-%d_%T)] $*" | tee -a $OUT/summary.txt; }
 
@@ -97,12 +77,18 @@ print(("PASS" if not why else "FAIL ") + "；".join(why) + f"  [零速 {jit:.2f}
 PY
 }
 
-evaluate() {   # $1 name  $2 onnx
-  ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --seeds 2 ) \
-      2>&1 | grep -vE "^\s*$|Warn" > $OUT/$1.eval.txt
-  local g; g=$(gate $OUT/$1.eval.txt)
-  log "$1: $g"
-  if [[ "$g" == PASS* ]]; then cp "$2" $OUT/PASS_$1.onnx; touch $OUT/PASSED; fi
+evaluate() {   # $1 name  $2 onnx — must pass at BOTH servo torques (2026-11-11: O8d passed at 1.4 N·m,
+               # leaned back / fell at ≤ 0.96 on the robot)
+  local all=PASS msg=""
+  for st in 0.9 1.4; do
+    ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --seeds 2 --stall $st ) \
+        2>&1 | grep -vE "^\s*$|Warn" > $OUT/$1.eval_t$st.txt
+    local g; g=$(gate $OUT/$1.eval_t$st.txt)
+    msg+="[力矩 $st] $g  "
+    [[ "$g" == PASS* ]] || all=FAIL
+  done
+  log "$1: $all  $msg"
+  if [ $all = PASS ]; then cp "$2" $OUT/PASS_$1.onnx; touch $OUT/PASSED; fi
 }
 
 train_script() {   # $1 name $2 seed $3 extra  → writes ~/jduck_ops/$1.sh (same layout on both machines)

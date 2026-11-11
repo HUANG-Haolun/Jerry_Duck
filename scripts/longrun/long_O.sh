@@ -52,7 +52,16 @@ O13="$O12 JDUCK_POSE_STAND_STD=0.07"
 # O13*: O12a walks straight in every direction at both torques, zero-cmd 0.36° (0.86) / 0.60° (1.25), but
 # stands with hip pitch ±8–10° and bent knees. The standing pose std 0.15 keeps 42 % of the pose term at
 # 8° off; 0.07 keeps 2 %.
+O14="$O13 JDUCK_STANCE_W=2"
+# O14*: three stance failures in a row (O12a/O12b/O13a: one hip pitch 7–15° off). The stock pose term averages
+# over 10 leg joints → one joint 12° off keeps 41 % at std 0.07, weight 1. Add a per-joint PRODUCT stance term
+# (hip pitch + knee, std 0.07, zero command only): that joint alone → 0.
 QUEUE=(
+  "O14a|3|$O14"
+  "O14b|2|$O14"
+  "O14c|1|$O14"
+  "O14d|3|${O14/JDUCK_STANCE_W=2/JDUCK_STANCE_W=4}"
+  "O14e|2|${O14/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
   "O13a|3|$O13"
   "O13b|2|$O13"
   "O13c|1|$O13"

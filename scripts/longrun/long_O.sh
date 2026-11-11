@@ -61,9 +61,16 @@ O15="${O14/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
 # worse as the stance got tighter (O12 0.36 → O14 0.57). Not the quiet term's S2: the reward sees the sampled
 # action, and with action std 0.25 Σ Δa² ≈ 1.75 is all exploration noise — S2 0.003 would zero it for good.
 # CAPS acts on the policy MEAN: O9a (S20, stand boost 8) was the calmest so far (0.18°). Raise S, boost and T.
+O16="$O15 JDUCK_HEADING_W=2"
+# O16*: yaw failed five times in a row (O14a–e: 30–74° in the 15 s key-speed walks). A steady 0.066 rad/s
+# error keeps exp(−0.066²/0.12²) = 74 % of the yaw-rate term. heading_hold integrates the yaw error since
+# the last command change: std 0.2 rad → 57° gives 0, 17° gives 10 %.
 QUEUE=(
   "O15a|3|$O15"
   "O15b|1|${O15/JDUCK_CAPS_T=1/JDUCK_CAPS_T=3}"
+  "O16a|2|$O16"
+  "O16b|1|$O16 JDUCK_HEADING_STD=0.3"
+  "O16c|3|$O16"
   "O15c|2|${O15/JDUCK_CAPS_T=1/JDUCK_CAPS_T=3}"
   "O15d|3|${O15/JDUCK_CAPS_STAND=8/JDUCK_CAPS_STAND=16}"
   "O14a|3|$O14"

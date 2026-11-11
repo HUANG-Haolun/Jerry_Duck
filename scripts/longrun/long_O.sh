@@ -48,14 +48,21 @@ O12="$O11 JDUCK_TORQUE_DR=0.9,1.3 JDUCK_CMD_STAGED=1"
 # O12*: robot log 2026-11-11 17:20 — O1 at 8.1 V jitters 40 % more than at ~7.2 V (same 4 Hz, higher gain);
 # torque 0.96 × 0.9–1.3 ≈ 0.86–1.25 N·m spans a full-to-flat battery. Staged switch (O11a fell 0.38 → 2.5
 # at the one-shot switch). Gate at 0.86 and 1.25 + stance ≤ 5°.
+O13="$O12 JDUCK_POSE_STAND_STD=0.07"
+# O13*: O12a walks straight in every direction at both torques, zero-cmd 0.36° (0.86) / 0.60° (1.25), but
+# stands with hip pitch ±8–10° and bent knees. The standing pose std 0.15 keeps 42 % of the pose term at
+# 8° off; 0.07 keeps 2 %.
 QUEUE=(
-  "O12a|3|$O12"
-  "O12b|2|$O12"
-  "O12c|1|$O12"
-  "O12d|3|${O12/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
-  "O12e|2|${O12/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
-  "O12f|4|$O12"
+  "O13a|3|$O13"
+  "O13b|2|$O13"
+  "O13c|1|$O13"
+  "O13d|4|$O13"
+  "O13e|3|${O13/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
+  "O13f|2|${O13/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
+  "O13g|3|${O13/JDUCK_POSE_STAND_STD=0.07/JDUCK_POSE_STAND_STD=0.05}"
+  "O13h|2|${O13/JDUCK_POSE_STAND_STD=0.07/JDUCK_POSE_STAND_STD=0.05}"
 )
+
 
 log() { echo "[$(date +%m-%d_%T)] $*" | tee -a $OUT/summary.txt; }
 

@@ -44,12 +44,19 @@ O10="$O8 JDUCK_TORQUE_DR=0.67,1.33"
 O11="$O8 JDUCK_TORQUE=0.96"
 # O11*: O8 recipe on the spec-sheet servo (0.96 N·m, default DR 0.8–1.15× like O1). BASE has
 # JDUCK_TORQUE=1.2; the later JDUCK_TORQUE=0.96 wins. Gate at 0.8 and 0.96 + posture ≤ 5°.
+O12="$O11 JDUCK_TORQUE_DR=0.9,1.3 JDUCK_CMD_STAGED=1"
+# O12*: robot log 2026-11-11 17:20 — O1 at 8.1 V jitters 40 % more than at ~7.2 V (same 4 Hz, higher gain);
+# torque 0.96 × 0.9–1.3 ≈ 0.86–1.25 N·m spans a full-to-flat battery. Staged switch (O11a fell 0.38 → 2.5
+# at the one-shot switch). Gate at 0.86 and 1.25 + stance ≤ 5°.
 QUEUE=(
-  "O11a|3|$O11"
-  "O11b|2|$O11"
-  "O11c|1|$O11"
-  "O11d|3|${O11/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
+  "O12a|3|$O12"
+  "O12b|2|$O12"
+  "O12c|1|$O12"
+  "O12d|3|${O12/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
+  "O12e|2|${O12/JDUCK_CAPS_S=10/JDUCK_CAPS_S=20} JDUCK_CAPS_STAND=8"
+  "O12f|4|$O12"
 )
+
 log() { echo "[$(date +%m-%d_%T)] $*" | tee -a $OUT/summary.txt; }
 
 # gate check on an eval file → prints PASS/FAIL and the reasons
@@ -86,7 +93,7 @@ PY
 evaluate() {   # $1 name  $2 onnx — must pass at BOTH servo torques (2026-11-11: O8d passed at 1.4 N·m,
                # leaned back / fell at ≤ 0.96 on the robot)
   local all=PASS msg=""   # 2026-11-11 evening: torque back to the spec sheet (0.96 N·m) — O8d/O10 trained on 1.2 learned a bent-knee stance that tips on the robot
-  for st in 0.8 0.96; do
+  for st in 0.86 1.25; do
     ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --seeds 2 --stall $st ) \
         2>&1 | grep -vE "^\s*$|Warn" > $OUT/$1.eval_t$st.txt
     local g; g=$(gate $OUT/$1.eval_t$st.txt)

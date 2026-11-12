@@ -30,6 +30,7 @@ def main():
     p.add_argument("--seeds", type=int, default=3)
     p.add_argument("--seed0", type=int, default=0, help="first seed (re-check with seeds the gate did not use)")
     p.add_argument("--walk", action="store_true", help="also run every walking direction (15 s each)")
+    p.add_argument("--wz-scale", type=float, default=1.0, help="= jduck_run --wz-scale: yaw sent to the policy = key × this")
     p.add_argument("--stand-hold", action="store_true",
                    help="walk runs use jduck_run.StandHold and add a walk→stop→stand case per direction")
     p.add_argument("--stall", type=float, default=None,
@@ -76,6 +77,7 @@ def main():
             continue
         T = 15.0
         for name, c in WALK_CASES:
+            c = (c[0], c[1], c[2] * a.wz_scale)
             rs = [R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
                             FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], cmd3=c, T=T, no_load=FIT["no_load"],
                             stand_hold=jduck_run.StandHold() if a.stand_hold else None) for s in range(a.seed0, a.seed0 + a.seeds)]
@@ -83,7 +85,7 @@ def main():
             if not ok:
                 print(f"      {name:16s} 全摔 {len(rs)}/{len(rs)}"); continue
             dx = np.mean([r["dxy"] for r in ok], 0); yaw = np.mean([r["yaw"] for r in ok])
-            ideal = (c[0] * T, c[1] * T, math.degrees(c[2] * T))
+            ideal = (c[0] * T, c[1] * T, math.degrees(c[2] / a.wz_scale * T))
             print(f"      {name:16s} dx {dx[0]:+.2f} dy {dx[1]:+.2f} m（理想 {ideal[0]:+.1f},{ideal[1]:+.1f}）"
                   f" 偏航 {yaw:+5.0f}°（理想 {ideal[2]:+.0f}°）" + (f"  摔 {len(rs) - len(ok)}/{len(rs)}" if len(ok) < len(rs) else ""))
 
@@ -93,7 +95,7 @@ def main():
             for name, c in WALK_CASES[:6]:
                 rs = [R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
                                 FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], T=11.0, no_load=FIT["no_load"],
-                                stand_hold=jduck_run.StandHold(), cmd_sched=[(1.0, c), (5.0, (0.0, 0.0, 0.0))])
+                                stand_hold=jduck_run.StandHold(), cmd_sched=[(1.0, (c[0], c[1], c[2] * a.wz_scale)), (5.0, (0.0, 0.0, 0.0))])
                       for s in range(a.seed0, a.seed0 + a.seeds)]
                 fell = sum(r is None for r in rs)
                 print(f"      停 {name:14s} " + (f"摔 {fell}/{len(rs)}" if fell else "站住"))

@@ -15,6 +15,8 @@
 #   --blend S            策略输出渐入秒数（默认 1；5 秒时缩小的策略动作在力矩 0.96 N·m 下连 O1 都会摔）
 #   --hold-home          只保持 HOME，不执行策略
 #   --log PATH           录数据到 .npz
+#   --stand-hold         零指令时不跑策略、保持 HOME（O21b 必须加）
+#   --wz-scale X         发给策略的转向 = 按键 × X（O21b 用 0.8，否则转多 25–40%）
 #   -y, --yes            跳过“继续？[y/N]”确认
 #
 # Python 用 jduck_tools/setup_board.sh 装好的 venv（默认 $JDUCK_VENV = /userdata/jduck-venv，
@@ -36,9 +38,11 @@ while [ $# -gt 0 ]; do
     --ramp) RAMP=$2; shift 2 ;;
     --blend) BLEND=$2; shift 2 ;;
     --hold-home) EXTRA+=(--hold-home); shift ;;
+    --stand-hold) EXTRA+=(--stand-hold); shift ;;
+    --wz-scale) EXTRA+=(--wz-scale "$2"); shift 2 ;;
     --log) EXTRA+=(--log "$2"); shift 2 ;;
     -y|--yes) EXTRA+=(--yes); shift ;;
-    -h|--help) sed -n 2,20p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,22p "$0"; exit 0 ;;
     --) shift; EXTRA+=("$@"); break ;;
     *) echo "不认识的参数：$1（-h 看用法）" >&2; exit 1 ;;
   esac

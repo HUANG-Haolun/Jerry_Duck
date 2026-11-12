@@ -373,7 +373,9 @@ def run(args) -> None:
                     print(f"\n倾斜 {tilt:.0f}° > {args.max_tilt}°，卸力停止")
                     break
                 qd = qd_f
-                obs = np.concatenate([ang_vel, grav, q - home, qd, last_action, cmds.cmd]).astype(np.float32)
+                cmd_pol = cmds.cmd.copy()
+                cmd_pol[2] *= args.wz_scale              # policies over-turn: send less yaw than the key asks
+                obs = np.concatenate([ang_vel, grav, q - home, qd, last_action, cmd_pol]).astype(np.float32)
                 if not np.isfinite(obs).all():
                     print("\nobs 有 NaN，卸力停止")
                     break
@@ -485,6 +487,8 @@ def main() -> None:
     p.add_argument("--max-vx", type=float, default=0.08)
     p.add_argument("--max-vy", type=float, default=0.05)
     p.add_argument("--max-wz", type=float, default=0.25)
+    p.add_argument("--wz-scale", type=float, default=1.0,
+                   help="发给策略的转向指令 = 按键 × 这个系数（O21b/O22 在 0.25 rad/s 下多转 25–40%%，可设 0.75）")
     p.add_argument("--walk-test-vx", type=float, default=0.0,
                    help="一次性前进测试速度；结束后自动回到零速度")
     p.add_argument("--walk-test-delay-s", type=float, default=6.0)

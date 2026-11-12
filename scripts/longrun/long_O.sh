@@ -69,9 +69,17 @@ O17="$O16 JDUCK_STANCE_ALL=1 JDUCK_STANCE_STD=0.1 JDUCK_SYMMETRY=0.5"
 # O17*: O15b passed the 5° hip-pitch/knee stance check but stood asymmetric (left hip roll −4~−10°, ankle +7°,
 # right hip pitch +5°) and fell on the robot with the right foot forward. Stance product over all 10 leg joints
 # (std 0.1: one joint 3° off keeps 76 %, all ten 3° off keep 6 %) + left/right mirror loss. Gate: ≤ 3° on all.
+O18="$O17 JDUCK_STANCE_L1=4"
+# O18*: O17b stood 3.5° mean off HOME per leg joint (left hip roll −8~−9°, left hip pitch −7~−8°) where the
+# 10-joint product is exp(−Σe²/0.1²) = 0.005: flat, no pull back (stance_product 0.04 all run). Add an L1
+# penalty −w·Σ|q−HOME| at zero command: same slope at any distance; 3.5° mean → −4·0.61 = −2.4 per step.
 QUEUE=(
   "O17a|2|$O17"
   "O17b|1|$O17"
+  "O18a|1|$O18"
+  "O18b|2|$O18"
+  "O18c|3|${O18/JDUCK_STANCE_L1=4/JDUCK_STANCE_L1=8}"
+  "O18d|2|${O18/JDUCK_STANCE_L1=4/JDUCK_STANCE_L1=8}"
   "O17c|3|${O17/JDUCK_SYMMETRY=0.5/JDUCK_SYMMETRY=1}"
   "O17d|2|${O17/JDUCK_STANCE_STD=0.1/JDUCK_STANCE_STD=0.07}"
   "O17e|3|${O17/JDUCK_STANCE_W=2/JDUCK_STANCE_W=4}"

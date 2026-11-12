@@ -65,7 +65,16 @@ O16="$O15 JDUCK_HEADING_W=2"
 # O16*: yaw failed five times in a row (O14a–e: 30–74° in the 15 s key-speed walks). A steady 0.066 rad/s
 # error keeps exp(−0.066²/0.12²) = 74 % of the yaw-rate term. heading_hold integrates the yaw error since
 # the last command change: std 0.2 rad → 57° gives 0, 17° gives 10 %.
+O17="$O16 JDUCK_STANCE_ALL=1 JDUCK_STANCE_STD=0.1 JDUCK_SYMMETRY=0.5"
+# O17*: O15b passed the 5° hip-pitch/knee stance check but stood asymmetric (left hip roll −4~−10°, ankle +7°,
+# right hip pitch +5°) and fell on the robot with the right foot forward. Stance product over all 10 leg joints
+# (std 0.1: one joint 3° off keeps 76 %, all ten 3° off keep 6 %) + left/right mirror loss. Gate: ≤ 3° on all.
 QUEUE=(
+  "O17a|2|$O17"
+  "O17b|1|$O17"
+  "O17c|3|${O17/JDUCK_SYMMETRY=0.5/JDUCK_SYMMETRY=1}"
+  "O17d|2|${O17/JDUCK_STANCE_STD=0.1/JDUCK_STANCE_STD=0.07}"
+  "O17e|3|${O17/JDUCK_STANCE_W=2/JDUCK_STANCE_W=4}"
   "O15a|3|$O15"
   "O15b|1|${O15/JDUCK_CAPS_T=1/JDUCK_CAPS_T=3}"
   "O16a|2|$O16"
@@ -98,8 +107,8 @@ import re, sys
 t = open(sys.argv[1]).read()
 why = []
 pm = re.search(r"站姿 .*最大偏离 ([\d.]+)°", t)
-if pm and float(pm.group(1)) > 5.0:
-    why.append(f"站姿偏离 HOME {float(pm.group(1)):.1f}°>5")   # O8d bent knees ±7–10°, tipped forward
+if pm and float(pm.group(1)) > 3.0:
+    why.append(f"站姿偏离 HOME {float(pm.group(1)):.1f}°>3")   # O8d bent knees ±7–10°, tipped forward
 m = re.search(r"校准仿真 \S+\s+([\d.]+)", t)
 if not m: print("FAIL 没有零速结果"); sys.exit()
 jit = float(m.group(1))

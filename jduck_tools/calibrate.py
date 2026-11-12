@@ -542,6 +542,66 @@ def cmd_drop(args, bus: ServoBus) -> None:
         print()
 
 
+def cmd_step_test(args, bus: ServoBus) -> None:
+    """Step responses for the sim's servo model: for each joint, from URDF 0 step to ±5/10/20/40°
+    and back, polling the position with re-sent MOVEs (~1.3 ms per sample), and save every trace.
+
+    Robot hung up, legs free. Only the tested servo is driven; the others are not touched.
+    2026-11-12: walking data showed the real servos ~1.5–2× faster than the sim at 3–10° error.
+    """
+    import numpy as np
+
+    servo_map = load_servo_map(args.map)
+    cal = Calibration.load(args.cal)
+    k = cal.k_rad_per_count
+    print(f"⚠ 依次给 {', '.join(args.names)} 上电做阶跃（±{'/'.join(str(x) for x in args.steps)}°）。"
+          "机器人要吊起来、脚离地，关节周围不能有东西。")
+    if input("继续？[y/N] ").strip().lower() != "y":
+        return
+    out = {"names": [], "step_deg": [], "t": [], "pos": [], "target": [], "start": []}
+    try:
+        for n in args.names:
+            c = cal.joints[n]; sid = servo_map[n]
+            lo_adc, hi_adc = sorted((c.adc_min, c.adc_max))
+            margin = round(math.radians(8) / k)
+            base = round(c.to_adc(0.0, k))
+            r = bus.relax(sid)
+            if r is None:
+                print(f"  {n}（ID {sid}）无应答，跳过"); continue
+            hold_target(bus, sid, base, 1.0)
+            print(f"  {n}（ID {sid}）零位 ADC {base}，范围 {lo_adc}–{hi_adc}")
+            for deg in args.steps:
+                for sgn in (+1, -1):
+                    tgt = base + sgn * c.sign * round(math.radians(deg) / k)
+                    if not lo_adc + margin <= tgt <= hi_adc - margin:
+                        print(f"    {sgn * deg:+4d}° 超出范围，跳过"); continue
+                    for goal in (tgt, base):
+                        t0 = time.monotonic(); ts, ps = [], []
+                        r0 = bus.transact(sid, CMD_MOVE, goal)
+                        start = r0.pos if r0 else -1
+                        while time.monotonic() - t0 < args.window:
+                            rr = bus.transact(sid, CMD_MOVE, goal)
+                            if rr is not None:
+                                ts.append(time.monotonic() - t0); ps.append(rr.pos)
+                        out["names"].append(n); out["step_deg"].append(sgn * deg if goal == tgt else -sgn * deg)
+                        out["t"].append(np.array(ts)); out["pos"].append(np.array(ps))
+                        out["target"].append(goal); out["start"].append(start)
+                        end = ps[-1] if ps else None
+                        print(f"    {('去' if goal == tgt else '回'):s} {sgn * deg:+4d}°：起 {start} → 目标 {goal}，"
+                              f"{args.window:.1f} s 后 {end}（{len(ps)} 个点）")
+            bus.relax(sid)
+    finally:
+        for n in args.names:
+            bus.relax(servo_map[n])
+        L = max((len(x) for x in out["t"]), default=0)
+        pad = lambda xs: np.array([np.pad(x.astype(float), (0, L - len(x)), constant_values=np.nan) for x in xs])
+        if out["t"]:
+            np.savez(args.out, names=np.array(out["names"]), step_deg=np.array(out["step_deg"]),
+                     t=pad(out["t"]), pos=pad(out["pos"]), target=np.array(out["target"]),
+                     start=np.array(out["start"]), k=k)
+            print(f"已卸力，存了 {len(out['t'])} 段到 {args.out}")
+
+
 # ---------------------------------------------------------------- main
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -572,6 +632,12 @@ def main() -> None:
     s.add_argument("--fit-window", type=float, default=0.03, help="求峰值速度的滑动拟合窗口（秒）")
     s.add_argument("--reps", type=int, default=3)
     s.add_argument("--window", type=float, default=2.0, help="每次运动记录多少秒")
+    s = sub.add_parser("step-test", help="吊起来逐个关节做 ±5/10/20/40° 阶跃，存完整曲线（拟合仿真舵机模型）")
+    s.add_argument("names", nargs="*", choices=JOINTS, metavar="joint",
+                   default=["left_knee", "left_hip_pitch", "left_hip_roll", "left_ankle", "left_hip_yaw"])
+    s.add_argument("--steps", type=int, nargs="+", default=[5, 10, 20, 40])
+    s.add_argument("--window", type=float, default=0.8, help="每次阶跃记录多少秒")
+    s.add_argument("--out", type=Path, default=Path("/userdata/step_test.npz"))
     s = sub.add_parser("friction", help="测舵机静摩擦（需要修改版固件）")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--reps", type=int, default=3)
@@ -600,7 +666,7 @@ def main() -> None:
     with bus:
         {"scan": cmd_scan, "monitor": cmd_monitor, "measure-k": cmd_measure_k,
          "joint": cmd_joint, "verify": cmd_verify, "speed-test": cmd_speed_test,
-         "friction": cmd_friction, "drop": cmd_drop}[args.cmd](args, bus)
+         "friction": cmd_friction, "drop": cmd_drop, "step-test": cmd_step_test}[args.cmd](args, bus)
 
 
 if __name__ == "__main__":

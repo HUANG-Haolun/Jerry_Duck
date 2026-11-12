@@ -73,7 +73,15 @@ O18="$O17 JDUCK_STANCE_L1=4"
 # O18*: O17b stood 3.5° mean off HOME per leg joint (left hip roll −8~−9°, left hip pitch −7~−8°) where the
 # 10-joint product is exp(−Σe²/0.1²) = 0.005: flat, no pull back (stance_product 0.04 all run). Add an L1
 # penalty −w·Σ|q−HOME| at zero command: same slope at any distance; 3.5° mean → −4·0.61 = −2.4 per step.
+O19="$O18 JDUCK_STAND_TILT=10"
+# O19*: O18a stood leaning back 2.9° in the calibrated sim (O1 0.2°) and 7.4° on the robot → fell backwards
+# easily. `upright` (std² 0.05) pays 95 % at 3°, 74 % at 7°. Add −w·(|pitch|+|roll|) at zero command:
+# 3° → −0.52 per step at w 10. Gate: |trunk pitch| ≤ 1.5° at zero command.
 QUEUE=(
+  "O19a|1|$O19"
+  "O19b|2|$O19"
+  "O19c|3|${O19/JDUCK_STAND_TILT=10/JDUCK_STAND_TILT=20}"
+  "O19d|1|${O19/JDUCK_STANCE_L1=4/JDUCK_STANCE_L1=8}"
   "O17a|2|$O17"
   "O17b|1|$O17"
   "O18a|1|$O18"
@@ -117,6 +125,9 @@ why = []
 pm = re.search(r"站姿 .*最大偏离 ([\d.]+)°", t)
 if pm and float(pm.group(1)) > 3.0:
     why.append(f"站姿偏离 HOME {float(pm.group(1)):.1f}°>3")   # O8d bent knees ±7–10°, tipped forward
+pt = re.search(r"躯干俯仰 ([+-][\d.]+)°", t)
+if pt and abs(float(pt.group(1))) > 1.5:
+    why.append(f"零速躯干俯仰 {float(pt.group(1)):+.1f}°（|·|>1.5）")   # O18a −2.9° → fell backwards on the robot
 m = re.search(r"校准仿真 \S+\s+([\d.]+)", t)
 if not m: print("FAIL 没有零速结果"); sys.exit()
 jit = float(m.group(1))

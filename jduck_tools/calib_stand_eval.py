@@ -41,7 +41,7 @@ def main():
     print(f"{'真机 ' + a.log.name:28s} " + "  ".join(f"{v:10.3f}" for v in R.feats(real)))
     for path in a.onnx:
         pol = jduck_run.Policy(path)
-        fs, fell, poses = [], 0, []
+        fs, fell, poses, pitches = [], 0, [], []
         for s in range(a.seed0, a.seed0 + a.seeds):
             d = R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
                           FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"])
@@ -51,6 +51,7 @@ def main():
                 fs.append(R.feats(d))
                 dq = np.degrees(d["q"][300:] - pol.home).mean(0)
                 poses.append([dq[2], dq[3], dq[11], dq[12], *dq[[0, 1, 4, 9, 10, 13]]])
+                pitches.append(float(np.degrees(np.arctan2(d["grav"][300:, 0], -d["grav"][300:, 2])).mean()))
         line = "  ".join(f"{v:10.3f}" for v in np.mean(fs, 0)) if fs else "全摔"
         print(f"{'校准仿真 ' + path.name:28s} {line}" + (f"   摔 {fell}/{a.seeds}" if fell else ""))
         if poses:
@@ -63,6 +64,9 @@ def main():
             print(f"      站姿 髋pitch 左 {P[0]:+5.1f}° 右 {P[2]:+5.1f}°  膝 左 {P[1]:+5.1f}° 右 {P[3]:+5.1f}°"
                   f"  髋yaw {P[4]:+5.1f}/{P[7]:+5.1f}  髋roll {P[5]:+5.1f}/{P[8]:+5.1f}  踝 {P[6]:+5.1f}/{P[9]:+5.1f}"
                   f"  最大偏离 {np.abs(P).max():.1f}°")
+            # trunk pitch at zero command (+ forward). 2026-11-12: O18a −2.9° here, −7.4° on the robot, fell
+            # backwards; O1 −0.2° here.
+            print(f"      躯干俯仰 {np.mean(pitches):+.1f}°")
         if not a.walk:
             continue
         T = 15.0

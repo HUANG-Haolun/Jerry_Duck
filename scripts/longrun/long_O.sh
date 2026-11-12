@@ -82,7 +82,17 @@ O20="$O19 JDUCK_TORQUE=1.4 JDUCK_TORQUE_DR=0.9,1.15"
 # sim at 1.4 N·m sags the same, at 0.96 it COLLAPSES. O11–O19 trained on 0.96 × [0.9, 1.3] and were gated
 # at 0.86 — a servo much softer than the robot's. Back to the fit: 1.4 × [0.9, 1.15], gate at 1.25 / 1.55.
 # The IMU's 1.8° mounting pitch is corrected on the board (imu_spi.yaml pitch_offset_deg), not in training.
+O21="${O12/JDUCK_TORQUE=0.96/JDUCK_TORQUE=1.4} JDUCK_NOLOAD=5.5 JDUCK_ACT_DELAY=1,3 JDUCK_HEADING_W=2 JDUCK_SYMMETRY=0.5"
+O21="${O21/JDUCK_TORQUE_DR=0.9,1.3/JDUCK_TORQUE_DR=0.9,1.15}"
+# O21*: zero speed is no longer the policy's job (jduck_run --stand-hold holds HOME; O20a–c jittered
+# 0.9–1.5° at 1.4 N·m whatever the stand rewards). Walk only: O12 recipe (no stance/tilt/L1 terms, the
+# best walker of the stock-firmware runs) + servo fit from the 2026-11-12 step-test (1.4 N·m, no-load
+# 5.5 rad/s, +5 ms = 1 physics step, so ACT_DELAY 1–3) + heading hold + mirror loss for straight walks.
 QUEUE=(
+  "O21a|1|$O21"
+  "O21b|2|$O21"
+  "O21c|3|$O21 JDUCK_ANG_STD=0.08"
+  "O21d|4|$O21"
   "O20a|1|$O20"
   "O20b|2|$O20"
   "O20c|3|${O20/JDUCK_STAND_TILT=10/JDUCK_STAND_TILT=20}"
@@ -155,6 +165,8 @@ for name, lim in (("前进 0.08", None), ("后退 0.08", None), ("左移 0.05", 
     if name == "前进 0.08" and dx < 0.6: why.append(f"前进只走了 {dx:+.2f} m")
     if name == "左移 0.05" and dy < 0.4: why.append(f"左移只走了 {dy:+.2f} m")
     if name == "右移 0.05" and dy > -0.4: why.append(f"右移只走了 {dy:+.2f} m")
+for l in t.splitlines():                        # --stand-hold: walk 4 s, stop, must stay up
+    if l.strip().startswith("停 ") and "摔" in l: why.append(l.strip())
 print(("PASS" if not why else "FAIL ") + "；".join(why) + f"  [零速 {jit:.2f}°]")
 PY
 }
@@ -163,7 +175,7 @@ evaluate() {   # $1 name  $2 onnx — must pass at BOTH servo torques (2026-11-1
                # leaned back / fell at ≤ 0.96 on the robot)
   local all=PASS msg=""   # 2026-11-11 evening: torque back to the spec sheet (0.96 N·m) — O8d/O10 trained on 1.2 learned a bent-knee stance that tips on the robot
   for st in 1.25 1.55; do   # 2026-11-12 hold-home: real leg sag = sim at 1.4 N·m (0.96 collapses)
-    ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --seeds 2 --stall $st ) \
+    ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --stand-hold --seeds 2 --stall $st ) \
         2>&1 | grep -vE "^\s*$|Warn" > $OUT/$1.eval_t$st.txt
     local g; g=$(gate $OUT/$1.eval_t$st.txt)
     msg+="[力矩 $st] $g  "

@@ -57,11 +57,22 @@ class I2CDev:
         return os.read(self.fd, n)
 
 
-def _axis_map(spec):
+def _axis_map(spec, pitch_offset_deg=0.0):
+    """Chip → body axes; then a rotation about body y by `pitch_offset_deg` (mounting error).
+
+    pitch_offset_deg > 0 makes the reading lean further FORWARD (projected gravity +x grows). 2026-11-12:
+    holding HOME the robot read pitch −0.92° where the calibrated sim (same leg sag) reads +0.91° → +1.8.
+    """
     m = np.zeros((3, 3))
     for body_i, s in enumerate(spec):
         sign = -1.0 if s.startswith("-") else 1.0
         m[body_i, "xyz".index(s[-1])] = sign
+    if pitch_offset_deg:
+        a = np.radians(pitch_offset_deg)
+        # gravity in the body frame is (gx, ·, gz) with gz ≈ −1; lean forward ⇔ gx = sin(pitch) > 0.
+        # Rotating the sensor frame by −a about y moves g = (0,0,−1) to (sin a, 0, −cos a).
+        ry = np.array([[np.cos(a), 0.0, -np.sin(a)], [0.0, 1.0, 0.0], [np.sin(a), 0.0, np.cos(a)]])
+        m = ry @ m
     return m
 
 
@@ -88,8 +99,10 @@ class Imu:
         import yaml
 
         c = yaml.safe_load(Path(path).read_text()) or {}
-        return cls(c.get("bus", 1), int(c.get("address", 0x6A)), c.get("axes", ["x", "y", "z"]),
-                   c.get("gyro_bias", [0, 0, 0]), c.get("alpha", 0.02))
+        imu = cls(c.get("bus", 1), int(c.get("address", 0x6A)), c.get("axes", ["x", "y", "z"]),
+                  c.get("gyro_bias", [0, 0, 0]), c.get("alpha", 0.02))
+        imu.M = _axis_map(c.get("axes", ["x", "y", "z"]), float(c.get("pitch_offset_deg", 0.0)))
+        return imu
 
     def raw(self):
         b = self.dev.read(OUTX_L_G, 12)

@@ -20,7 +20,7 @@ class Imu(GravityFilter):
         if self.lib.open_icm() != 0:
             raise OSError("SPI IMU ID/configuration mismatch")
         self.buf = (ctypes.c_int16 * 6)()
-        self.M = _axis_map(cfg["axes"])
+        self.M = _axis_map(cfg["axes"], float(cfg.get("pitch_offset_deg", 0.0)))
         self.bias = np.array(cfg["gyro_bias"], dtype=float)
         self.alpha = cfg.get("alpha", 0.02)
         self.g = self.t = None

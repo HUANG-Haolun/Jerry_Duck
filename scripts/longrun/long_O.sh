@@ -77,7 +77,16 @@ O19="$O18 JDUCK_STAND_TILT=10"
 # O19*: O18a stood leaning back 2.9° in the calibrated sim (O1 0.2°) and 7.4° on the robot → fell backwards
 # easily. `upright` (std² 0.05) pays 95 % at 3°, 74 % at 7°. Add −w·(|pitch|+|roll|) at zero command:
 # 3° → −0.52 per step at w 10. Gate: |trunk pitch| ≤ 1.5° at zero command.
+O20="$O19 JDUCK_TORQUE=1.4 JDUCK_TORQUE_DR=0.9,1.15"
+# O20*: 2026-11-12 --hold-home on the robot: every leg joint sags 2 ADC counts (0.7–0.9°), the calibrated
+# sim at 1.4 N·m sags the same, at 0.96 it COLLAPSES. O11–O19 trained on 0.96 × [0.9, 1.3] and were gated
+# at 0.86 — a servo much softer than the robot's. Back to the fit: 1.4 × [0.9, 1.15], gate at 1.25 / 1.55.
+# The IMU's 1.8° mounting pitch is corrected on the board (imu_spi.yaml pitch_offset_deg), not in training.
 QUEUE=(
+  "O20a|1|$O20"
+  "O20b|2|$O20"
+  "O20c|3|${O20/JDUCK_STAND_TILT=10/JDUCK_STAND_TILT=20}"
+  "O20d|2|${O20/JDUCK_STANCE_L1=4/JDUCK_STANCE_L1=8}"
   "O19a|1|$O19"
   "O19b|2|$O19"
   "O19c|3|${O19/JDUCK_STAND_TILT=10/JDUCK_STAND_TILT=20}"
@@ -153,7 +162,7 @@ PY
 evaluate() {   # $1 name  $2 onnx — must pass at BOTH servo torques (2026-11-11: O8d passed at 1.4 N·m,
                # leaned back / fell at ≤ 0.96 on the robot)
   local all=PASS msg=""   # 2026-11-11 evening: torque back to the spec sheet (0.96 N·m) — O8d/O10 trained on 1.2 learned a bent-knee stance that tips on the robot
-  for st in 0.86 1.25; do
+  for st in 1.25 1.55; do   # 2026-11-12 hold-home: real leg sag = sim at 1.4 N·m (0.96 collapses)
     ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --seeds 2 --stall $st ) \
         2>&1 | grep -vE "^\s*$|Warn" > $OUT/$1.eval_t$st.txt
     local g; g=$(gate $OUT/$1.eval_t$st.txt)

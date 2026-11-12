@@ -4,3 +4,6 @@ chip: ICM42688P
 axes: ["-x", "-y", "z"]
 gyro_bias: [-0.004007, 0.004164, 0.006588]
 alpha: 0.02
+# Mounting pitch correction (imu_lsm6dsv16x._axis_map). 2026-11-12 --hold-home: robot read −0.92° where the
+# calibrated sim with the same leg sag reads +0.91° → the board leans back ~1.8° relative to trunk_base.
+pitch_offset_deg: 1.8

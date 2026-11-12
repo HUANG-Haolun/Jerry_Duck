@@ -91,7 +91,13 @@ O21="${O21/JDUCK_TORQUE_DR=0.9,1.3/JDUCK_TORQUE_DR=0.9,1.15}"
 O22="$O21 JDUCK_YAW_REL_W=2"
 # O22*: turning overshoot three times in a row (O21a/b/c: +25–60 % at the 0.25 rad/s key). The absolute yaw term
 # (std 0.12) still pays 68 % at +30 %, 50 % at +40 %. Relative yaw tracking (rel_std 0.25): +30 % → 24 %, +40 % → 8 %.
+# O23*: O21b (O21, seed 2) + --wz-scale 0.8 passes at 1.4/1.55 N·m; the O22 yaw-rel term did not beat it
+# (O22a–d: forward 0.08 stalls or drifts 48–79°). More O21 seeds, gated the way the robot runs it (wz × 0.8).
 QUEUE=(
+  "O23a|5|$O21"
+  "O23b|6|$O21"
+  "O23c|7|$O21"
+  "O23d|8|$O21"
   "O22a|2|$O22"
   "O22b|1|$O22"
   "O22c|3|$O22 JDUCK_ANG_STD=0.08"
@@ -182,7 +188,7 @@ evaluate() {   # $1 name  $2 onnx — must pass at BOTH servo torques (2026-11-1
                # leaned back / fell at ≤ 0.96 on the robot)
   local all=PASS msg=""   # 2026-11-11 evening: torque back to the spec sheet (0.96 N·m) — O8d/O10 trained on 1.2 learned a bent-knee stance that tips on the robot
   for st in 1.25 1.55; do   # 2026-11-12 hold-home: real leg sag = sim at 1.4 N·m (0.96 collapses)
-    ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --stand-hold --seeds 2 --stall $st ) \
+    ( cd $RL && timeout 3600 env -u PYTHONPATH uv run --frozen python ../../jduck_tools/calib_stand_eval.py "$2" --walk --stand-hold --wz-scale 0.8 --seeds 2 --stall $st ) \
         2>&1 | grep -vE "^\s*$|Warn" > $OUT/$1.eval_t$st.txt
     local g; g=$(gate $OUT/$1.eval_t$st.txt)
     msg+="[力矩 $st] $g  "

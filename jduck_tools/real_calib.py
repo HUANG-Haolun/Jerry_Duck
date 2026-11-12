@@ -125,7 +125,10 @@ class Bus(S.SimBus):
 
 
 def run_sim(policy, cal, smap, fw, friction, stall, backlash, extra_delay_ms, wire_s, seed=0, T=25.0, blend_s=0.0,
-            damping=None, no_load=4.8, gyro_noise=0.0, cmd3=(0.0, 0.0, 0.0), fall_deg=45.0):
+            damping=None, no_load=4.8, gyro_noise=0.0, cmd3=(0.0, 0.0, 0.0), fall_deg=45.0,
+            stand_hold=None, cmd_sched=None):
+    """stand_hold: a jduck_run.StandHold (zero command → hold HOME). cmd_sched: [(t_start, (vx, vy, wz)), ...]
+    overrides cmd3 from each t_start on (e.g. walk 4 s, then stop)."""
     robot = make_robot(cal, smap, policy.home, fw, seed, friction, stall, backlash, extra_delay_ms, damping, no_load)
     rng = np.random.default_rng(seed)
     robot.d.qpos[robot.qa] += rng.uniform(-0.01, 0.01, len(robot.qa))
@@ -146,9 +149,15 @@ def run_sim(policy, cal, smap, fw, friction, stall, backlash, extra_delay_ms, wi
         w, g = imu.read()
         if gyro_noise > 0:                       # IMU noise / board vibration the policy sees
             w = w + rng.normal(0, gyro_noise, 3).astype(np.float32)
+        if cmd_sched:
+            for ts, c3 in cmd_sched:
+                if tick * DT >= ts:
+                    cmd[:3] = c3
         obs = np.concatenate([w, g, q - home, qd_f, last, cmd]).astype(np.float32)
         raw = policy(obs).astype(np.float32)
         a = raw * (min(1.0, (tick + 1) * DT / blend_s) if blend_s > 0 else 1.0)
+        if stand_hold is not None:
+            a = a * stand_hold.scale(cmd[:3], tick * DT)
         last = a
         tgt = home + a * policy.action_scale
         active = full + SLOW_HEAD[tick % 2::2]

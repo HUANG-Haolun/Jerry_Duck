@@ -107,6 +107,30 @@ class PolicySwitch:
         return self.active
 
 
+class StandHold:
+    """At zero command, fade the action to 0 (= hold HOME) instead of running the policy.
+
+    2026-11-12: every walk policy for the stock firmware stood worse than plain HOME (O15b right foot forward,
+    O18a leaning back 7° and falling backwards), while --hold-home stands still. The policy only walks:
+    `delay_s` after the command goes to 0 the action fades to 0 over `fade_s`; a nonzero command hands
+    control straight back (the policy keeps seeing the true last_action, so it restarts from what it sent).
+    scale() returns the factor applied to the raw policy action this tick.
+    """
+
+    def __init__(self, delay_s: float = 0.4, fade_s: float = 0.4):
+        self.delay_s, self.fade_s = delay_s, max(1e-3, fade_s)
+        self.zero_since = None
+
+    def scale(self, cmd3, t: float) -> float:
+        if float(np.abs(np.asarray(cmd3)).sum()) > 1e-6:
+            self.zero_since = None
+            return 1.0
+        if self.zero_since is None:
+            self.zero_since = t
+        u = t - self.zero_since - self.delay_s
+        return float(np.clip(1.0 - u / self.fade_s, 0.0, 1.0))
+
+
 # ---------------------------------------------------------------- joints
 class Joints:
     """14 servos over the bus: ADC <-> URDF rad via calibration.yaml."""
@@ -265,6 +289,7 @@ def run(args) -> None:
     else:
         raise SystemExit("真机运行需要 --imu-config")
     cmds = Commands((args.max_vx, args.max_vy, args.max_wz))
+    stand = StandHold(args.stand_hold_delay_s, args.stand_hold_fade_s) if args.stand_hold else None
     if args.gamepad:
         cmds.open_gamepad(args.gamepad)
 
@@ -366,6 +391,8 @@ def run(args) -> None:
                     blend = 1.0
                 else:
                     blend = min(1.0, (tick + 1) * CONTROL_DT / args.policy_blend_s)
+                if stand is not None:
+                    blend *= stand.scale(cmds.cmd[:3], tick * CONTROL_DT)
                 action = raw_action * blend
                 if args.action_ema > 0:
                     action = (1 - args.action_ema) * action + args.action_ema * last_action
@@ -446,6 +473,10 @@ def main() -> None:
     p.add_argument("--ramp-s", type=float, default=3.0)
     p.add_argument("--hold-home", action="store_true",
                    help="首次上电测试：慢移到 HOME 后只保持 HOME，不执行策略动作")
+    p.add_argument("--stand-hold", action="store_true",
+                   help="零指令时不跑策略，动作渐变到 0 保持 HOME；给速度立即交回策略（StandHold）")
+    p.add_argument("--stand-hold-delay-s", type=float, default=0.4, help="松开按键后多久开始收回 HOME")
+    p.add_argument("--stand-hold-fade-s", type=float, default=0.4, help="收回 HOME 用几秒")
     p.add_argument("--yes", action="store_true", help="已确认安全条件，跳过交互式上电提示")
     p.add_argument("--policy-blend-s", type=float, default=3.0,
                    help="上电后用多少秒从 HOME 平滑加入策略输出")

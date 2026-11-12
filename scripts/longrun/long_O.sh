@@ -88,7 +88,14 @@ O21="${O21/JDUCK_TORQUE_DR=0.9,1.3/JDUCK_TORQUE_DR=0.9,1.15}"
 # 0.9–1.5° at 1.4 N·m whatever the stand rewards). Walk only: O12 recipe (no stance/tilt/L1 terms, the
 # best walker of the stock-firmware runs) + servo fit from the 2026-11-12 step-test (1.4 N·m, no-load
 # 5.5 rad/s, +5 ms = 1 physics step, so ACT_DELAY 1–3) + heading hold + mirror loss for straight walks.
+O22="$O21 JDUCK_YAW_REL_W=2"
+# O22*: turning overshoot three times in a row (O21a/b/c: +25–60 % at the 0.25 rad/s key). The absolute yaw term
+# (std 0.12) still pays 68 % at +30 %, 50 % at +40 %. Relative yaw tracking (rel_std 0.25): +30 % → 24 %, +40 % → 8 %.
 QUEUE=(
+  "O22a|2|$O22"
+  "O22b|1|$O22"
+  "O22c|3|$O22 JDUCK_ANG_STD=0.08"
+  "O22d|4|${O22/JDUCK_YAW_REL_W=2/JDUCK_YAW_REL_W=4}"
   "O21a|1|$O21"
   "O21b|2|$O21"
   "O21c|3|$O21 JDUCK_ANG_STD=0.08"

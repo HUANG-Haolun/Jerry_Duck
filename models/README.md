@@ -264,6 +264,7 @@ JDUCK_TORQUE=0.96 JDUCK_NOLOAD=4.8
 | `jduck_O1_orig_full.onnx` | `7420dbe752b462ee` |
 | `jduck_N1_k8_calm0.3_caps5.onnx` | `819f5c276344e9ec` |
 | `jduck_N3k4a_kp4.onnx` | `1a0035bc5602748c` |
+| `jduck_N6home3k4a_kp4.onnx` | `b8953cc8cae298f4` |
 
 ## KP=4 固件：N3k4a（2026-11-16）
 
@@ -286,4 +287,17 @@ N4k4a 只额外增加权重 4 的十关节 HOME L1 惩罚，训练最终回合�
 
 N6home3k4a 是新的 HOME 对照实验：沿用 N3 的其余训练参数，
 把 HOME 的左右踝从 ±0.05 rad 改为 ±(0.05 rad + 3°)，并按足底高度把初始躯干高度增加 1 mm。
-它会从头训练，不能把此 HOME 直接套到 N3 的 ONNX 上。N6 完成校准仿真前仍以 N3 为候选。
+它从头训练，不能把此 HOME 直接套到 N3 的 ONNX 上。
+
+N6 已完成 4000 轮训练和校准仿真（2026-11-16）。配合 `--stand-hold`、无需额外踝偏置时，
+1.25 / 1.4 / 1.55 N·m 的静站躯干俯仰为 +2.0° / +0.2° / −0.5°，六种走停切换均站住。
+1.4 N·m 下前进 0.2 m/s 行走 15 s 的偏航约 −4°（N3 约 −32°），
+但后退 0.2 m/s 偏航约 +84°、侧移时前后漂移约 0.24 m，仍不适合替换 N3 上机。
+N6 只用于仿真对照；高速度后退是下一步需要解决的问题。
+
+```bash
+cd third_party/microduck_rl
+uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jduck_N6home3k4a_kp4.onnx \
+  --jduck-fw 4,0,0 --jduck-torque 1.4 --jduck-noload 5.5 \
+  --jduck-keys 0.08,0.05,0.25 --stand-hold
+```

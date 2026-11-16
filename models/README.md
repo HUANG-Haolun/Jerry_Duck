@@ -283,3 +283,7 @@ uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jdu
 N4k4a 只额外增加权重 4 的十关节 HOME L1 惩罚，训练最终回合长度约 551（N3 约 983），
 第 3999 轮在校准仿真中零速 4/4 摔倒。第 2000 和 2500 轮 checkpoint 也未通过零速与走路门槛，
 故 N4 不作为候选模型。
+
+N6home3k4a 是新的 HOME 对照实验：沿用 N3 的其余训练参数，
+把 HOME 的左右踝从 ±0.05 rad 改为 ±(0.05 rad + 3°)，并按足底高度把初始躯干高度增加 1 mm。
+它会从头训练，不能把此 HOME 直接套到 N3 的 ONNX 上。N6 完成校准仿真前仍以 N3 为候选。

@@ -263,3 +263,16 @@ JDUCK_TORQUE=0.96 JDUCK_NOLOAD=4.8
 | `jduck_O8d_orig.onnx` | `9e79d28fe0273813` |
 | `jduck_O1_orig_full.onnx` | `7420dbe752b462ee` |
 | `jduck_N1_k8_calm0.3_caps5.onnx` | `819f5c276344e9ec` |
+| `jduck_N3k4a_kp4.onnx` | `1a0035bc5602748c` |
+
+## KP=4 固件：N3k4a（2026-11-16）
+
+`jduck_N3k4a_kp4.onnx` 是当前候选策略，按 `scripts/longrun/n3_train.sh` 在台式机训练。
+校准仿真在堵转力矩 1.25 / 1.4 / 1.55 N·m 下，零速腿目标变化约 0.25–0.28°/拍；
+直接运行策略时站姿最大偏离 HOME 约 9°。使用 `--stand-hold --stand-ankle-deg 3` 后，
+三个力矩档的零速站姿俯仰分别为 +0.9° / +0.2° / −0.5°，六种走停切换均站住。
+KP=4 固件和该站姿组合尚未真机验证。上机命令见 [`jduck_tools/README.md`](../jduck_tools/README.md)。
+
+N4k4a 只额外增加权重 4 的十关节 HOME L1 惩罚，训练最终回合长度约 551（N3 约 983），
+第 3999 轮在校准仿真中零速 4/4 摔倒。第 2000 和 2500 轮 checkpoint 也未通过零速与走路门槛，
+故 N4 不作为候选模型。

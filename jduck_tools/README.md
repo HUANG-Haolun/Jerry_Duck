@@ -31,6 +31,17 @@ jduck_tools/run_robot.sh --log /userdata/stand.npz     # 录每一拍数据，�
 jduck_tools/run_robot.sh -- --dry-run                  # 只读传感器、跑策略，不给舵机上电
 jduck_tools/run_robot.sh -h                            # 全部选项
 ```
+修改版固件 KP=4 的 N3 策略已放在 `models/jduck_N3k4a_kp4.onnx`。先确认舵机确实运行 KP=4 固件，再按顺序使用：
+```bash
+jduck_tools/run_robot.sh -m models/jduck_N3k4a_kp4.onnx --hold-home --stand-ankle-deg 3
+jduck_tools/run_robot.sh -m models/jduck_N3k4a_kp4.onnx --stand-hold --stand-ankle-deg 3
+```
+第一条只保持目标，不执行策略；第二条走路用策略，零速用专用站姿。
+左踝比模型 HOME 多 3°、右踝少 3°，走路时仍用模型原 HOME 和观测基准。
+校准仿真（1.25 / 1.4 / 1.55 N·m，各 4 个种子）中躯干俯仰为 +0.9° / +0.2° / −0.5°，
+六种走停切换均站住；这组参数还没有真机验证。
+N4k4a 在 N3 上增加权重 4 的零速十关节 HOME L1 惩罚，训练后期崩溃；
+第 3999 轮校准仿真零速 4/4 摔倒，且各方向跟踪大幅退化，不用于真机。
 默认参数就是 2026-11-09 晚上手敲的那条命令：`/dev/ttyS3` 230460 波特、`imu_spi.yaml`、上电 10 s 移到 HOME、
 策略 1 s 渐入（2026-11-11 前是 5 s：仿真里在 0.96 N·m 下会摔）、按键速度上限 vx 0.08 / vy 0.05 / wz 0.25、头颈分频 2、倾斜保护 20°。
 键盘：方向键走，a / e 转，空格停，q 退出（会卸力）。

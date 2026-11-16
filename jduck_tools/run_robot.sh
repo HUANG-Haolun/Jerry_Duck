@@ -16,6 +16,7 @@
 #   --hold-home          只保持 HOME，不执行策略
 #   --log PATH           录数据到 .npz
 #   --stand-hold         零指令时不跑策略、保持 HOME（O21b 必须加）
+#   --stand-ankle-deg DEG  零速 HOME 的左右踝镜像偏移（配合 --stand-hold 或 --hold-home）
 #   --wz-scale X         发给策略的转向 = 按键 × X（O21b 用 0.8，否则转多 25–40%）
 #   -y, --yes            跳过“继续？[y/N]”确认
 #
@@ -39,6 +40,7 @@ while [ $# -gt 0 ]; do
     --blend) BLEND=$2; shift 2 ;;
     --hold-home) EXTRA+=(--hold-home); shift ;;
     --stand-hold) EXTRA+=(--stand-hold); shift ;;
+    --stand-ankle-deg) EXTRA+=(--stand-ankle-deg "$2"); shift 2 ;;
     --wz-scale) EXTRA+=(--wz-scale "$2"); shift 2 ;;
     --log) EXTRA+=(--log "$2"); shift 2 ;;
     -y|--yes) EXTRA+=(--yes); shift ;;

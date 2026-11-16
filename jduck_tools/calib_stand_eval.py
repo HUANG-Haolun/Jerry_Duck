@@ -34,10 +34,22 @@ def main():
     p.add_argument("--wz-scale", type=float, default=1.0, help="= jduck_run --wz-scale: yaw sent to the policy = key × this")
     p.add_argument("--stand-hold", action="store_true",
                    help="walk runs use jduck_run.StandHold and add a walk→stop→stand case per direction")
+    p.add_argument("--stand-hip-pitch-deg", type=float, default=0.0,
+                   help="with --stand-hold, offset the standing target: left hip pitch +deg, right -deg")
+    p.add_argument("--stand-ankle-deg", type=float, default=0.0,
+                   help="with --stand-hold, offset the standing target: left ankle +deg, right -deg")
     p.add_argument("--stall", type=float, default=None,
                    help="servo stall torque N·m (default = the fit, 1.4). 2026-11-11: O8d passed at 1.4 but "
                         "leaned back / fell at ≤ 0.96 on the robot — gate at both ends of the plausible range")
     a = p.parse_args()
+    if not math.isfinite(a.stand_hip_pitch_deg) or abs(a.stand_hip_pitch_deg) > 10:
+        p.error("--stand-hip-pitch-deg 必须在 -10 到 10 度之间")
+    if a.stand_hip_pitch_deg and not a.stand_hold:
+        p.error("--stand-hip-pitch-deg 需要 --stand-hold")
+    if not math.isfinite(a.stand_ankle_deg) or abs(a.stand_ankle_deg) > 10:
+        p.error("--stand-ankle-deg 必须在 -10 到 10 度之间")
+    if a.stand_ankle_deg and not a.stand_hold:
+        p.error("--stand-ankle-deg 需要 --stand-hold")
     global FW
     FW = (dict(S.SimRobot.FW_ORIG) if a.fw == "orig" else
           dict(K=float(a.fw.split(",")[0]), FF=float(a.fw.split(",")[1]), DB=float(a.fw.split(",")[2]),
@@ -45,6 +57,11 @@ def main():
     if a.stall is not None:
         FIT["stall"] = a.stall
     cal = Calibration.load(HERE / "calibration.yaml"); smap = load_servo_map(HERE / "servo_map.yaml")
+    stand_home_offset = np.zeros(len(jduck_run.JOINTS), np.float32)
+    stand_home_offset[jduck_run.JOINTS.index("left_hip_pitch")] = np.radians(a.stand_hip_pitch_deg)
+    stand_home_offset[jduck_run.JOINTS.index("right_hip_pitch")] = -np.radians(a.stand_hip_pitch_deg)
+    stand_home_offset[jduck_run.JOINTS.index("left_ankle")] = np.radians(a.stand_ankle_deg)
+    stand_home_offset[jduck_run.JOINTS.index("right_ankle")] = -np.radians(a.stand_ankle_deg)
     real = dict(np.load(a.log, allow_pickle=True))
     wire = float(np.median((real["el"] - real["t_pol"]) / real["active"].sum(1)))
     print(f"{'':28s} " + "  ".join(f"{n:>10s}" for n in R.NAMES))
@@ -55,12 +72,13 @@ def main():
         for s in range(a.seed0, a.seed0 + a.seeds):
             d = R.run_sim(pol, cal, smap, dict(FW), FIT["friction"], FIT["stall"], FIT["backlash"],
                           FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], no_load=FIT["no_load"],
-                          stand_hold=jduck_run.StandHold() if a.stand_hold else None)
+                          stand_hold=jduck_run.StandHold() if a.stand_hold else None,
+                          stand_home_offset=stand_home_offset if a.stand_hold else None)
             if d is None:
                 fell += 1
             else:
                 fs.append(R.feats(d))
-                dq = np.degrees(d["q"][300:] - pol.home).mean(0)
+                dq = np.degrees(d["q"][300:] - pol.home - (stand_home_offset if a.stand_hold else 0)).mean(0)
                 poses.append([dq[2], dq[3], dq[11], dq[12], *dq[[0, 1, 4, 9, 10, 13]]])
                 pitches.append(float(np.degrees(np.arctan2(d["grav"][300:, 0], -d["grav"][300:, 2])).mean()))
         line = "  ".join(f"{v:10.3f}" for v in np.mean(fs, 0)) if fs else "全摔"
@@ -85,7 +103,8 @@ def main():
             c = (c[0], c[1], c[2] * a.wz_scale)
             rs = [R.run_sim(pol, cal, smap, dict(FW), FIT["friction"], FIT["stall"], FIT["backlash"],
                             FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], cmd3=c, T=T, no_load=FIT["no_load"],
-                            stand_hold=jduck_run.StandHold() if a.stand_hold else None) for s in range(a.seed0, a.seed0 + a.seeds)]
+                            stand_hold=jduck_run.StandHold() if a.stand_hold else None,
+                            stand_home_offset=stand_home_offset if a.stand_hold else None) for s in range(a.seed0, a.seed0 + a.seeds)]
             ok = [r for r in rs if r is not None]
             if not ok:
                 print(f"      {name:16s} 全摔 {len(rs)}/{len(rs)}"); continue
@@ -107,7 +126,8 @@ def main():
             for name, c in WALK_CASES[:6]:
                 rs = [R.run_sim(pol, cal, smap, dict(FW), FIT["friction"], FIT["stall"], FIT["backlash"],
                                 FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], T=11.0, no_load=FIT["no_load"],
-                                stand_hold=jduck_run.StandHold(), cmd_sched=[(1.0, (c[0], c[1], c[2] * a.wz_scale)), (5.0, (0.0, 0.0, 0.0))])
+                                stand_hold=jduck_run.StandHold(), cmd_sched=[(1.0, (c[0], c[1], c[2] * a.wz_scale)), (5.0, (0.0, 0.0, 0.0))],
+                                stand_home_offset=stand_home_offset)
                       for s in range(a.seed0, a.seed0 + a.seeds)]
                 fell = sum(r is None for r in rs)
                 print(f"      停 {name:14s} " + (f"摔 {fell}/{len(rs)}" if fell else "站住"))

@@ -290,6 +290,13 @@ def run(args) -> None:
         raise SystemExit("真机运行需要 --imu-config")
     cmds = Commands((args.max_vx, args.max_vy, args.max_wz))
     stand = StandHold(args.stand_hold_delay_s, args.stand_hold_fade_s) if args.stand_hold else None
+    if not math.isfinite(args.stand_ankle_deg) or abs(args.stand_ankle_deg) > 10:
+        raise SystemExit("--stand-ankle-deg 必须在 -10 到 10 度之间")
+    if args.stand_ankle_deg and stand is None and not args.hold_home:
+        raise SystemExit("--stand-ankle-deg 需要 --stand-hold 或 --hold-home")
+    stand_home_offset = np.zeros(len(JOINTS), np.float32)
+    stand_home_offset[JOINTS.index("left_ankle")] = math.radians(args.stand_ankle_deg)
+    stand_home_offset[JOINTS.index("right_ankle")] = -math.radians(args.stand_ankle_deg)
     if args.gamepad:
         cmds.open_gamepad(args.gamepad)
 
@@ -393,9 +400,15 @@ def run(args) -> None:
                     blend = 1.0
                 else:
                     blend = min(1.0, (tick + 1) * CONTROL_DT / args.policy_blend_s)
-                if stand is not None:
-                    blend *= stand.scale(cmds.cmd[:3], tick * CONTROL_DT)
+                stand_scale = stand.scale(cmds.cmd[:3], tick * CONTROL_DT) if stand is not None else 1.0
+                blend *= stand_scale
                 action = raw_action * blend
+                if args.hold_home:
+                    # After the initial ramp to the policy HOME, move to the stand target over at least 1 s.
+                    stand_offset_scale = min(1.0, (tick + 1) * CONTROL_DT / max(1.0, args.policy_blend_s))
+                else:
+                    stand_offset_scale = 1.0 - stand_scale
+                action += stand_offset_scale * stand_home_offset / policy.action_scale
                 if args.action_ema > 0:
                     action = (1 - args.action_ema) * action + args.action_ema * last_action
                 last_action = action
@@ -479,6 +492,8 @@ def main() -> None:
                    help="零指令时不跑策略，动作渐变到 0 保持 HOME；给速度立即交回策略（StandHold）")
     p.add_argument("--stand-hold-delay-s", type=float, default=0.4, help="松开按键后多久开始收回 HOME")
     p.add_argument("--stand-hold-fade-s", type=float, default=0.4, help="收回 HOME 用几秒")
+    p.add_argument("--stand-ankle-deg", type=float, default=0.0,
+                   help="--stand-hold 或 --hold-home 的零速目标相对策略 HOME：左踝 +角度、右踝 −角度")
     p.add_argument("--yes", action="store_true", help="已确认安全条件，跳过交互式上电提示")
     p.add_argument("--policy-blend-s", type=float, default=3.0,
                    help="上电后用多少秒从 HOME 平滑加入策略输出")

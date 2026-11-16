@@ -7,8 +7,8 @@
 （MuJoCo Warp + PPO）里训练 → 导出 ONNX → 在泰山派 RK3566 上以 50 Hz 跑策略，通过总线驱动舵机。
 训练代码改自 Pollen Robotics 的 [microduck_rl](https://github.com/pollen-robotics/microduck_rl)。
 
-> **状态（2026-11）**：已经能在仿真里走、转弯，零速时能站住。完整的真机控制程序也在仿真里跑通了。
-> **还没有在真机上跑过**：关节标定、IMU 安装方向、修改版舵机固件，都还要在实物上验证。
+> **状态（2026-11-16）**：真机控制与 IMU 已运行；修改版舵机固件的 KP=4 已测量，N3k4a 策略通过校准仿真。
+> N3 的零速踝关节偏移站姿尚待真机验证；N4k4a 的强 HOME 惩罚导致训练退化，不能上机。
 
 ## 目录
 
@@ -66,13 +66,9 @@ ros2 launch jduck_description display.launch.py
 训练任务叫 `Mjlab-Velocity-Flat-JDuck`。它在 microduck 的速度跟踪任务基础上换成了 jduck 的模型，
 具体配置通过 `JDUCK_*` 环境变量选择，实验名会自动带上这些参数。
 
-当前推荐的配置：
+修改版固件 KP=4 当前推荐复现 N3k4a；具体参数固定在脚本里：
 ```bash
-cd third_party/microduck_rl
-JDUCK_OBS_ADC=1 JDUCK_HOME=old JDUCK_FW=16,0,0 JDUCK_TORQUE=0.96 JDUCK_NOLOAD=4.8 \
-JDUCK_STAND_QUIET=4 JDUCK_STAND_QUIET_S2=1 JDUCK_ANG_EMA=0.5 \
-uv run --frozen train Mjlab-Velocity-Flat-JDuck --env.scene.num-envs 4096 \
-    --agent.max_iterations 4000 --agent.seed 1 --agent.run-name mytry --agent.logger tensorboard
+scripts/longrun/n3_train.sh N3k4a 1 4000 4096
 ```
 在 RTX 5090 台式机上大约 50 分钟，笔记本 5090 Laptop 上大约 1.6 小时。正式跑之前，
 先用 `--env.scene.num-envs 64 --agent.max_iterations 5` 做一次冒烟测试。
@@ -80,8 +76,8 @@ uv run --frozen train Mjlab-Velocity-Flat-JDuck --env.scene.num-envs 4096 \
 | 变量 | 推荐值 | 作用 |
 |---|---|---|
 | `JDUCK_HOME` | `old` | 站立姿态。`old` 蹲得更低，走路和站立都明显比 `new` 好 |
-| `JDUCK_FW` | `16,0,0` | 舵机控制律 K,FF,DB：`pwm = K·|误差| + FF`，误差 ≤ DB 时为 0。不设时是原版固件的控制律，用它训练学不会迈步 |
-| `JDUCK_TORQUE` / `JDUCK_NOLOAD` | `0.96` / `4.8` | 舵机堵转力矩（N·m）和空载转速（rad/s），按官方 7.4 V 规格 |
+| `JDUCK_FW` | `4,0,0` | 当前修改版舵机控制律 K,FF,DB；模型必须与舵机实际固件匹配 |
+| `JDUCK_TORQUE` / `JDUCK_NOLOAD` | `1.4` / `5.5` | 根据真机阶跃测试拟合的堵转力矩（N·m）和空载转速（rad/s） |
 | `JDUCK_OBS_ADC` | `1` | 关节观测和真机一致：位置按 ADC 量化，速度用 20 ms 差分。不开的话，策略上真机后零速时会抖 |
 | `JDUCK_STAND_QUIET` / `_S2` | `4` / `1` | 零指令时“动作越安静越给分”的正奖励，让机器人站着不动 |
 | `JDUCK_ANG_EMA` | `0.5` | 转向奖励按 0.5 s 滑动平均的偏航角速度计算。不开的话，基本学不会转弯 |
@@ -135,13 +131,13 @@ uv run --frozen python ../../jduck_tools/hw_chain_eval.py jduck_mytry.onnx      
    板子没有网口；连手机热点后能上外网，但和公司电脑不在一个网段，ssh 不了。
 2. **准备环境（只做一次）**：板子上 `cd /root/Jerry_Duck && jduck_tools/setup_board.sh`。
    会建 `/userdata/jduck-venv`（离线装 numpy / onnxruntime 等），编译 IMU 读数库，并自检读一次 IMU。
-3. **启动**：机器人扶正后 `jduck_tools/run_robot.sh -m models/jduck_O8d_orig.onnx`（推荐；不带 `-m` 是 O1）；`-m` 换模型，`--hold-home` 只保持 HOME，
+3. **启动**：KP=4 固件用 `jduck_tools/run_robot.sh -m models/jduck_N3k4a_kp4.onnx --stand-hold --stand-ankle-deg 3`；原版固件用 O8d；`-m` 换模型，`--hold-home` 只保持 HOME，
    `--log` 录数据，`-- --dry-run` 不上电。键盘：方向键走，a / e 转，空格停，q 退出。
 4. **新模型先过仿真门槛再上机**：`jduck_tools/calib_stand_eval.py --walk`（用真机数据校准过舵机参数的仿真），
    零速腿每拍目标变化 < 0.5°，按键速度下各方向不摔、偏航 < 30°，后退能走出 0.6 m。
 
 **硬件现状**：
-- 舵机是**原版固件**（改不了），只能用 `JDUCK_FW=orig` 训练的模型（O1 系列）。修改版固件的 N1 / d1 / 踢球 / 起身模型上不了机。
+- 原版固件和 KP=4 修改版固件要分别使用对应策略；先确认当前舵机固件参数，再选模型。
 - IMU 是 **ICM-42688P（SPI）**，不是 LSM6DSV16X；驱动 `imu_spi_board.py`，配置 `imu_spi.yaml`（轴向、零偏已标定）。
 - `--hold-home` 看真机 HOME 和仿真一致；零位暂时不用重标。
 - 实测（2026-11-10）：控制周期中位 20 ms，每个舵机一问一答 1.29 ms，推理加读 IMU 3.6 ms。
@@ -150,7 +146,7 @@ uv run --frozen python ../../jduck_tools/hw_chain_eval.py jduck_mytry.onnx      
   **O8d（2026-11-11）过了门槛**：校准仿真里零速 0.46°/拍（O1 2.26°），按键速度下前后左右都能走、偏航 < 30°。
   见 [`models/README.md`](models/README.md)。还没在真机上试过。
 
-**烧修改版固件（如果以后能改）**：先拿一个舵机试 `firmware/ubt12hc_pd`，见 [`firmware/ubt12hc_pd/README.md`](firmware/ubt12hc_pd/README.md)；
+**修改版固件**：见 [`firmware/ubt12hc_pd/README.md`](firmware/ubt12hc_pd/README.md)；
 参数用 `jduck_tools/servo_params.py` 改，KP / FF / DB 要和训练时的 `JDUCK_FW` 一致。
 
 ## 重要约定

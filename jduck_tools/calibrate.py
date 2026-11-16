@@ -551,6 +551,8 @@ def cmd_step_test(args, bus: ServoBus) -> None:
     """
     import numpy as np
 
+    # Python 3.11 argparse checks a list default of nargs="*" against `choices` as a whole → fill it here
+    args.names = args.names or ["left_knee", "left_hip_pitch", "left_hip_roll", "left_ankle", "left_hip_yaw"]
     servo_map = load_servo_map(args.map)
     cal = Calibration.load(args.cal)
     k = cal.k_rad_per_count
@@ -634,7 +636,7 @@ def main() -> None:
     s.add_argument("--window", type=float, default=2.0, help="每次运动记录多少秒")
     s = sub.add_parser("step-test", help="吊起来逐个关节做 ±5/10/20/40° 阶跃，存完整曲线（拟合仿真舵机模型）")
     s.add_argument("names", nargs="*", choices=JOINTS, metavar="joint",
-                   default=["left_knee", "left_hip_pitch", "left_hip_roll", "left_ankle", "left_hip_yaw"])
+                   help="默认 左膝 左髋pitch 左髋roll 左踝 左髋yaw")
     s.add_argument("--steps", type=int, nargs="+", default=[5, 10, 20, 40])
     s.add_argument("--window", type=float, default=0.8, help="每次阶跃记录多少秒")
     s.add_argument("--out", type=Path, default=Path("/userdata/step_test.npz"))

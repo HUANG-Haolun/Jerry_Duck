@@ -30,6 +30,7 @@ def main():
     p.add_argument("--seeds", type=int, default=3)
     p.add_argument("--seed0", type=int, default=0, help="first seed (re-check with seeds the gate did not use)")
     p.add_argument("--walk", action="store_true", help="also run every walking direction (15 s each)")
+    p.add_argument("--fw", default="orig", help="'orig' = stock firmware, or K,FF,DB of firmware/ubt12hc_pd (e.g. 8,0,0)")
     p.add_argument("--wz-scale", type=float, default=1.0, help="= jduck_run --wz-scale: yaw sent to the policy = key × this")
     p.add_argument("--stand-hold", action="store_true",
                    help="walk runs use jduck_run.StandHold and add a walk→stop→stand case per direction")
@@ -37,6 +38,10 @@ def main():
                    help="servo stall torque N·m (default = the fit, 1.4). 2026-11-11: O8d passed at 1.4 but "
                         "leaned back / fell at ≤ 0.96 on the robot — gate at both ends of the plausible range")
     a = p.parse_args()
+    global FW
+    FW = (dict(S.SimRobot.FW_ORIG) if a.fw == "orig" else
+          dict(K=float(a.fw.split(",")[0]), FF=float(a.fw.split(",")[1]), DB=float(a.fw.split(",")[2]),
+               floor=0, timeout_ms=200, params=True))
     if a.stall is not None:
         FIT["stall"] = a.stall
     cal = Calibration.load(HERE / "calibration.yaml"); smap = load_servo_map(HERE / "servo_map.yaml")
@@ -48,7 +53,7 @@ def main():
         pol = jduck_run.Policy(path)
         fs, fell, poses, pitches = [], 0, [], []
         for s in range(a.seed0, a.seed0 + a.seeds):
-            d = R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
+            d = R.run_sim(pol, cal, smap, dict(FW), FIT["friction"], FIT["stall"], FIT["backlash"],
                           FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], no_load=FIT["no_load"],
                           stand_hold=jduck_run.StandHold() if a.stand_hold else None)
             if d is None:
@@ -78,22 +83,29 @@ def main():
         T = 15.0
         for name, c in WALK_CASES:
             c = (c[0], c[1], c[2] * a.wz_scale)
-            rs = [R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
+            rs = [R.run_sim(pol, cal, smap, dict(FW), FIT["friction"], FIT["stall"], FIT["backlash"],
                             FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], cmd3=c, T=T, no_load=FIT["no_load"],
                             stand_hold=jduck_run.StandHold() if a.stand_hold else None) for s in range(a.seed0, a.seed0 + a.seeds)]
             ok = [r for r in rs if r is not None]
             if not ok:
                 print(f"      {name:16s} 全摔 {len(rs)}/{len(rs)}"); continue
             dx = np.mean([r["dxy"] for r in ok], 0); yaw = np.mean([r["yaw"] for r in ok])
+            # walking shake: leg-target content above 8 Hz (2026-11-16: N1 at the step-test servo fit shook
+            # 3.1° here, 0.5° at the 0.96 N·m it was trained on — the robot shook as soon as it walked)
+            def _hf(r):
+                x = r["target"][150:][:, R.LEGS]; x = x - x.mean(0)
+                X = np.fft.rfft(x, axis=0); X[np.fft.rfftfreq(len(x), R.DT) < 8] = 0
+                return float(np.degrees(np.fft.irfft(X, n=len(x), axis=0)).std(0).mean())
+            hf = np.mean([_hf(r) for r in ok])
             ideal = (c[0] * T, c[1] * T, math.degrees(c[2] / a.wz_scale * T))
             print(f"      {name:16s} dx {dx[0]:+.2f} dy {dx[1]:+.2f} m（理想 {ideal[0]:+.1f},{ideal[1]:+.1f}）"
-                  f" 偏航 {yaw:+5.0f}°（理想 {ideal[2]:+.0f}°）" + (f"  摔 {len(rs) - len(ok)}/{len(rs)}" if len(ok) < len(rs) else ""))
+                  f" 偏航 {yaw:+5.0f}°（理想 {ideal[2]:+.0f}°） 高频抖 {hf:.2f}°" + (f"  摔 {len(rs) - len(ok)}/{len(rs)}" if len(ok) < len(rs) else ""))
 
 
         if a.stand_hold:
             # walk 4 s then stop: StandHold fades to HOME; must still be upright 6 s later
             for name, c in WALK_CASES[:6]:
-                rs = [R.run_sim(pol, cal, smap, dict(S.SimRobot.FW_ORIG), FIT["friction"], FIT["stall"], FIT["backlash"],
+                rs = [R.run_sim(pol, cal, smap, dict(FW), FIT["friction"], FIT["stall"], FIT["backlash"],
                                 FIT["extra_delay_ms"], wire, seed=s, damping=FIT["damping"], T=11.0, no_load=FIT["no_load"],
                                 stand_hold=jduck_run.StandHold(), cmd_sched=[(1.0, (c[0], c[1], c[2] * a.wz_scale)), (5.0, (0.0, 0.0, 0.0))])
                       for s in range(a.seed0, a.seed0 + a.seeds)]

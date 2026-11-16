@@ -1,4 +1,4 @@
-# 上机用的模型
+# 模型与固件
 
 每个模型都只能配**对应的舵机固件和参数**使用，配错了会直接摔（仿真里已验证：K=8 训练的模型放到原版固件上，0.8 秒就摔倒）。
 
@@ -10,13 +10,15 @@
 | `jduck_O8d_orig.onnx` | **原版**（朋友烧的那版） | 不用设 | 2026-11-11 的推荐；真机会往后倒，已被 O21b 取代 |
 | `jduck_O1_orig_full.onnx` | **原版**（`firmware/stock/send_rev_230400_ult.ino`，朋友烧的那版） | 不用设，固件写死 | 固件改不了的时候 |
 | `jduck_N1_k8_calm0.3_caps5.onnx` | **修改版**（`firmware/ubt12hc_pd/`） | **KP=8 FF=0 DB=0**，上机前先设 | 能烧修改版固件的时候 |
-
+| `jduck_N3k4a_kp4.onnx` | **修改版**（`firmware/ubt12hc_pd/`） | **KP=4 FF=0 DB=0**，`--stand-hold --stand-ankle-deg 3` | **KP=4 综合候选**；各方向相对均衡，尚未真机验证 |
+| `jduck_N5k4a_kp4.onnx` | **修改版**（`firmware/ubt12hc_pd/`） | **KP=4 FF=0 DB=0**，`--stand-hold --stand-ankle-deg 3` | 仿真可用；低速前进较直，侧移和快走偏航较大 |
+| `jduck_N6home3k4a_kp4.onnx` | **修改版**（`firmware/ubt12hc_pd/`） | **KP=4 FF=0 DB=0**，`--stand-hold` | 新 HOME 仿真对照；快退偏航过大 |
 | `jduck_velstand_d1.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **推荐**：一个策略同时会走、会站、摔倒自己爬起来（VelStand） |
 | `jduck_kick_right_k8.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **右脚踢球**（站着时切过去，踢完 3 s 切回走路模型） |
 | `jduck_getup_jsu14.onnx` | **修改版**，KP=8 FF=0 DB=0 | 同 N1 | **摔倒后自己爬起来**，配 N1 用（见下） |
 
-两个走路模型和起身模型都用**旧 HOME**（hip_pitch ±0.25、knee ∓0.30、ankle ±0.05），HOME 存在 ONNX 元数据里，`jduck_run.py` 会自己读。
-都是 61 维观测、14 维动作、50 Hz，大小 776 KB。
+N3、N5 使用旧 HOME（hip_pitch ±0.25、knee ∓0.30、ankle ±0.05）；N6 的左右踝在此基础上各增加 3°。
+HOME 存在 ONNX 元数据里，`jduck_run.py` 会自己读。上述走路模型为 61 维观测、14 维动作、50 Hz。
 
 ## 原版固件推荐：`jduck_O21b_orig.onnx` + `--stand-hold`（2026-11-12）
 
@@ -267,7 +269,18 @@ JDUCK_TORQUE=0.96 JDUCK_NOLOAD=4.8
 | `jduck_N5k4a_kp4.onnx` | `f0816397a97065f9` |
 | `jduck_N6home3k4a_kp4.onnx` | `b8953cc8cae298f4` |
 
-## KP=4 固件：N3k4a（2026-11-16）
+## KP=4 固件：N3 / N5 / N6（2026-11-16）
+
+三者均已完成 4000 轮训练，并以种子 5–8、三档堵转力矩复核。下面是 1.4 N·m 下
+15 s 行走的偏航角（理想为 0°）；数值越接近 0°，该方向越直：
+
+| 模型 | 前进 0.08 m/s | 左移 0.05 m/s | 前进 0.2 m/s | 后退 0.2 m/s | 结论 |
+|---|---:|---:|---:|---:|---|
+| N3 | −27° | −18° | −32° | +8° | KP=4 综合候选；配旧 HOME 加 3° 踝站姿 |
+| N5 | −9° | −28° | −28° | +26° | 低速前进更直，侧移和快走较差 |
+| N6 | −6° | +2° | −4° | +84° | 前进、侧移较直，快速后退不合格 |
+
+三者均可用于仿真。KP=4 固件及这些策略的真机组合尚未验证，上机优先从 N3 开始。
 
 `jduck_N3k4a_kp4.onnx` 是当前候选策略，按 `scripts/longrun/n3_train.sh` 在台式机训练。
 校准仿真在堵转力矩 1.25 / 1.4 / 1.55 N·m 下，零速腿目标变化约 0.25–0.28°/拍；

@@ -272,6 +272,13 @@ JDUCK_TORQUE=0.96 JDUCK_NOLOAD=4.8
 直接运行策略时站姿最大偏离 HOME 约 9°。使用 `--stand-hold --stand-ankle-deg 3` 后，
 三个力矩档的零速站姿俯仰分别为 +0.9° / +0.2° / −0.5°，六种走停切换均站住。
 KP=4 固件和该站姿组合尚未真机验证。上机命令见 [`jduck_tools/README.md`](../jduck_tools/README.md)。
+在有图形桌面的终端交互仿真：
+```bash
+cd third_party/microduck_rl
+uv run --frozen scripts/infer_policy.py --robot jduck --walking ../../models/jduck_N3k4a_kp4.onnx \
+  --jduck-fw 4,0,0 --jduck-torque 1.4 --jduck-noload 5.5 \
+  --jduck-keys 0.08,0.05,0.25 --stand-hold --stand-ankle-deg 3
+```
 
 N4k4a 只额外增加权重 4 的十关节 HOME L1 惩罚，训练最终回合长度约 551（N3 约 983），
 第 3999 轮在校准仿真中零速 4/4 摔倒。第 2000 和 2500 轮 checkpoint 也未通过零速与走路门槛，

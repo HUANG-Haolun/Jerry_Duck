@@ -18,6 +18,7 @@ rl_control/
 ├── jduck_mjcf/          MuJoCo 模型，由 build_mjcf.py 从 URDF 生成（不要手改 XML）
 ├── models/              上机用的 ONNX 模型和说明（哪个模型配哪个固件、测评结果）
 ├── jduck_tools/         真机端：舵机协议、关节标定、IMU、50 Hz 控制程序、仿真替身
+├── duck_hw/             开发板硬件测试：ADS1115 电池/ADC、ICM42688P IMU、GPIO、舵机收发与位置测试（C 程序及 ARM64 可执行文件）
 ├── firmware/
 │   ├── ubt12hc_pd/      修改版舵机固件（线性 P 控制律、参数可在线调、通信超时）
 │   └── stock/           朋友烧的原版固件，只作参考，不要改
@@ -27,6 +28,8 @@ rl_control/
     ├── microduck_rl/    训练仓库（jduck 相关的都在 jduck 分支上）
     └── microduck/       Pollen 原版的机器人端运行时（Rust），只作参考
 ```
+
+`duck_hw/` 的编译命令、接线与设备节点、各测试程序的参数和运行方式见 [`duck_hw/README.md`](duck_hw/README.md)。舵机程序使用硬件自动收发，无需 GPIO 控制；独立的 `gpio_test` 用于测试 GPIO 输出。
 
 ## 快速开始
 

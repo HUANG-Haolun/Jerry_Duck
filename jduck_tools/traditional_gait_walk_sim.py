@@ -178,7 +178,11 @@ def main():
   max_lift[0]=max(max_lift[0],float(robot.d.site("left_foot").xpos[2]))
   max_lift[1]=max(max_lift[1],float(robot.d.site("right_foot").xpos[2]))
   if tilt>=a.fall_deg:
-   print(f"FALL t={robot.d.time:.2f}s tilt={tilt:.1f}deg phase={phase:.2f}");fallen=True;break
+   support_label=",".join(support) if support else "none"
+   print(f"FALL t={robot.d.time:.2f}s tilt={tilt:.1f}deg phase={phase:.2f} "
+         f"roll={roll_err:+.1f}deg pitch={pitch_err:+.1f}deg "
+         f"rate=({roll_rate:+.1f},{pitch_rate:+.1f})deg/s support={support_label}")
+   fallen=True;break
  print(f"RESULT alive={not fallen} time={robot.d.time:.2f}s dx={robot.d.qpos[0]-x0:+.4f}m "
        f"max_tilt={max_tilt:.2f}deg foot_lift=({max_lift[0]:.4f},{max_lift[1]:.4f})m "
        f"contact_ratio=({contact_ticks['left']/max(1,tick+1):.2f},{contact_ticks['right']/max(1,tick+1):.2f}) "

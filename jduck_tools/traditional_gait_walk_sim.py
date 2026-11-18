@@ -15,6 +15,9 @@ def main():
  p.add_argument("--seconds",type=float,default=8);p.add_argument("--period",type=float,default=1.6)
  p.add_argument("--stall",type=float,default=0.96,help="堵转扭矩 N·m")
  p.add_argument("--no-load",type=float,default=4.8,help="空载转速 rad/s")
+ p.add_argument("--rated-torque",type=float,default=None,help="可选额定扭矩 N·m，需同时设置 rated-speed")
+ p.add_argument("--rated-speed",type=float,default=None,help="可选额定转速 rad/s，需同时设置 rated-torque")
+ p.add_argument("--servo-latency-ms",type=float,default=0.0,help="每个舵机命令的串行传输时延，按关节顺序依次模拟")
  p.add_argument("--joint-friction",type=float,default=0.02,help="关节库仑摩擦 N·m")
  p.add_argument("--floor-friction",type=float,default=1.0,help="地面滑动摩擦系数")
  p.add_argument("--roll",type=float,default=8);p.add_argument("--hip",type=float,default=8)
@@ -44,8 +47,10 @@ def main():
  p.add_argument("--fall-deg",type=float,default=45);p.add_argument("--fw-k",type=float,default=16)
  a=p.parse_args()
  if not .6<=a.period<=4 or not 0<a.seconds<=600: p.error("period/seconds out of range")
+ if a.servo_latency_ms<0 or a.servo_latency_ms*len(JOINTS)/1000>.02: p.error("servo latency must fit within the 20 ms control period")
  cal=Calibration.load(HERE/"calibration.yaml"); smap=load_servo_map(HERE/"servo_map.yaml")
- fw=dict(S.SimRobot.FW_PD,K=a.fw_k); robot=S.SimRobot(cal,smap,np.zeros(14),fw=fw,stall=a.stall,no_load=a.no_load,friction=a.joint_friction)
+ fw=dict(S.SimRobot.FW_PD,K=a.fw_k); robot=S.SimRobot(cal,smap,np.zeros(14),fw=fw,stall=a.stall,no_load=a.no_load,
+  rated_torque=a.rated_torque,rated_speed=a.rated_speed,friction=a.joint_friction)
  robot.m.geom("floor").friction[0]=a.floor_friction
  if a.initial_roll or a.initial_pitch:
   qr=np.zeros(4); qp=np.zeros(4); q=np.zeros(4)
@@ -54,7 +59,7 @@ def main():
   mujoco.mju_mulQuat(q,qr,qp); robot.d.qpos[3:7]=q; mujoco.mj_forward(robot.m,robot.d)
  robot.d.qvel[3]=a.initial_roll_rate*math.pi/180
  robot.d.qvel[4]=a.initial_pitch_rate*math.pi/180
- dt=.02; n=int(a.seconds/dt); deg=math.pi/180
+ dt=.02; n=int(a.seconds/dt); deg=math.pi/180; latency_carry=0.0
  x0=robot.d.qpos[0];max_tilt=0.; fallen=False; max_lift=[0.,0.]
  floor_id=robot.m.geom("floor").id
  foot_geom={side:robot.m.geom(f"{side}_foot_collision").id for side in ("left","right")}
@@ -153,10 +158,17 @@ def main():
    q[inds[f"{leg}_hip_roll"]]+=rc
    q[inds[f"{leg}_hip_pitch"]]+=pc
    q[inds[f"{leg}_ankle"]]-=pc
+  tick_start=robot.d.time
   for i,name in enumerate(JOINTS):
    adc=int(round(cal.joints[name].to_adc(float(q[i]),cal.k_rad_per_count)))
    robot.command(smap[name],CMD_MOVE,adc)
-  robot.step(dt)
+   if a.servo_latency_ms:
+    latency_carry+=a.servo_latency_ms
+    delay_ticks=math.floor(latency_carry+1e-9)
+    if delay_ticks:
+     robot.step(delay_ticks*.001);latency_carry-=delay_ticks
+  remaining=dt-(robot.d.time-tick_start)
+  if remaining>0: robot.step(remaining)
   # MuJoCo collision-pair force is the simulated equivalent of a foot contact sensor.
   forces=np.zeros(6)
   step_contacts={"left":False,"right":False};step_force={"left":0.0,"right":0.0}
@@ -184,6 +196,7 @@ def main():
          f"rate=({roll_rate:+.1f},{pitch_rate:+.1f})deg/s support={support_label}")
    fallen=True;break
  print(f"RESULT alive={not fallen} time={robot.d.time:.2f}s dx={robot.d.qpos[0]-x0:+.4f}m "
+       f"servo_latency={a.servo_latency_ms:.2f}ms/cmd "
        f"max_tilt={max_tilt:.2f}deg foot_lift=({max_lift[0]:.4f},{max_lift[1]:.4f})m "
        f"contact_ratio=({contact_ticks['left']/max(1,tick+1):.2f},{contact_ticks['right']/max(1,tick+1):.2f}) "
        f"air_ratio=({lift_ticks['left']/max(1,tick+1):.2f},{lift_ticks['right']/max(1,tick+1):.2f}) support_switches={switches} "

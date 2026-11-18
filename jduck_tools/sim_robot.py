@@ -39,7 +39,8 @@ class SimRobot:
     FW_PD = dict(K=16, FF=0, floor=0, DB=0, timeout_ms=200, params=True)   # firmware/ubt12hc_pd defaults
 
     def __init__(self, cal: Calibration, servo_map: dict[str, int], home_q: np.ndarray,
-                 stall=0.96, no_load=4.8, seed=0, fw=None, friction=None, scene=None, zero_offset=None):
+                 stall=0.96, no_load=4.8, seed=0, fw=None, friction=None, scene=None, zero_offset=None,
+                 rated_torque=None, rated_speed=None):
         self.m = mujoco.MjModel.from_xml_path(str(scene or SCENE))
         self.m.opt.timestep = 0.001                     # = firmware rate
         self.d = mujoco.MjData(self.m)
@@ -54,6 +55,11 @@ class SimRobot:
         self.cal = [cal.joints[j] for j in JOINTS]
         self.by_id = {servo_map[j]: i for i, j in enumerate(JOINTS)}
         self.stall, self.no_load = stall, no_load
+        if (rated_torque is None) != (rated_speed is None):
+            raise ValueError("rated_torque and rated_speed must be supplied together")
+        if rated_torque is not None and not (0 < rated_torque < stall and 0 < rated_speed < no_load):
+            raise ValueError("rated_torque/speed must lie between zero and stall/no-load limits")
+        self.rated_torque, self.rated_speed = rated_torque, rated_speed
         self.fw = dict(fw or self.FW_PD)
         n = len(JOINTS)
         self.last_cmd_t = np.zeros(n)
@@ -90,7 +96,18 @@ class SimRobot:
                 # ADC→rad sign: q = sign*(adc-zero)*k, so +ADC error is sign*+q
                 duty = math.copysign(pwm / 255, err) * self.cal[i].sign
                 qd = self.d.qvel[self.va[i]]
-                tau[i] = np.clip(self.stall * (duty - qd / self.no_load), -self.stall, self.stall)
+                if self.rated_torque is None:
+                    tau[i] = np.clip(self.stall * (duty - qd / self.no_load), -self.stall, self.stall)
+                else:
+                    duty_mag = abs(duty)
+                    speed_ratio = qd * math.copysign(1.0, duty) / (duty_mag * self.no_load)
+                    rated_ratio = self.rated_speed / self.no_load
+                    rated_torque_ratio = self.rated_torque / self.stall
+                    if speed_ratio <= rated_ratio:
+                        torque_ratio = 1.0 + (rated_torque_ratio - 1.0) * speed_ratio / rated_ratio
+                    else:
+                        torque_ratio = rated_torque_ratio * (1.0 - speed_ratio) / (1.0 - rated_ratio)
+                    tau[i] = math.copysign(1.0, duty) * duty_mag * self.stall * np.clip(torque_ratio, -1.0, 1.0)
             self.d.qfrc_applied[:] = 0
             self.d.qfrc_applied[self.va] = tau
             mujoco.mj_step(self.m, self.d)

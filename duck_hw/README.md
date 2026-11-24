@@ -42,11 +42,25 @@ gcc -std=gnu11 -O2 -Wall -Wextra servo_sweep_test.c -o servo_sweep_test
 gcc -std=gnu11 -O2 -Wall -Wextra servo_position_stability.c -o servo_position_stability
 gcc -std=gnu11 -O2 -Wall -Wextra servo_multi_read.c -o servo_multi_read
 gcc -std=gnu11 -O2 -Wall -Wextra servo_position_limits.c -o servo_position_limits
+gcc -std=gnu11 -O2 -Wall -Wextra speaker_test.c -o speaker_test -lm
 ```
 
 其中 `-lgpiod` 用于链接 GPIO 库，`-lm` 用于数学库（诊断程序使用 `sqrtf`）。旧版 Linux 工具链若提示 `clock_gettime` 或 `clock_nanosleep` 未定义，可在相关舵机程序的编译命令末尾加 `-lrt`。
 
 ## 各程序功能与运行命令
+
+### 喇叭播放测试
+
+`speaker_test.c` 播放的是**连续、单音调的“哔——”测试声**，不是语音或音乐：默认频率 880 Hz（接近较高音调），持续 5 秒，开头和结尾会短暂渐强、渐弱以减少爆音。可用 Ctrl+C 提前停止，也可指定时长和频率（例如 1000 Hz 会更尖一些）。音频通过 ALSA 的 `aplay` 以 48 kHz、双声道、16-bit PCM 输出。目标系统需有 `aplay`（Debian/Ubuntu 可安装 `alsa-utils`）。程序不直接操作 GPIO，也不改变 mixer 音量。
+
+```bash
+sudo apt install alsa-utils
+gcc -std=gnu11 -O2 -Wall -Wextra speaker_test.c -o speaker_test -lm
+sudo ./speaker_test                 # 默认测试音
+sudo ./speaker_test 10 1000         # 10 秒、1000 Hz
+```
+
+先确认 GH1.25-4P 的喇叭接在 3、4 脚（SPK 差分输出），喇叭阻抗为 8 Ω；这两个脚是桥接输出，不能接地或接普通单端输入。若无声，可检查 `aplay -l` 是否列出声卡，并用 `alsamixer` 检查 RK809 播放通道音量/静音；连接 HDMI 时按泰山派系统文档建议先拔掉 HDMI 再测。官方文档说明板载 RK809 喇叭功放支持 8 Ω BTL 负载，额定约 1.3 W。
 
 ### 1. ads1115_read.c：读取四路 ADC 原始值
 

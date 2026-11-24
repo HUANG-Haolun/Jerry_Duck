@@ -62,6 +62,31 @@ sudo ./speaker_test 10 1000         # 10 秒、1000 Hz
 
 先确认 GH1.25-4P 的喇叭接在 3、4 脚（SPK 差分输出），喇叭阻抗为 8 Ω；这两个脚是桥接输出，不能接地或接普通单端输入。若无声，可检查 `aplay -l` 是否列出声卡，并用 `alsamixer` 检查 RK809 播放通道音量/静音；连接 HDMI 时按泰山派系统文档建议先拔掉 HDMI 再测。官方文档说明板载 RK809 喇叭功放支持 8 Ω BTL 负载，额定约 1.3 W。
 
+### MicroDuck 官方叫声 WAV
+
+`generate_microduck_wavs.sh` 会从官方 `pollen-robotics/microduck` 仓库编译 `sounds` 生成器，并把所有标签与变体写到 `duck_hw/duck_sounds/<标签>/`。官方生成的 WAV 是 48 kHz、单声道、16-bit PCM；固定 `--seed 1234` 保证重复生成时音色相同。标签包括 `alarm`、`greet`、`inquire`、`peck`、`chirp`、`coo`、`wheee` 和 `bwep`。
+
+在可联网的 Linux 开发机或板子上，需要先安装 Rust/Cargo、Git 和 ALSA 工具，然后在仓库根目录运行：
+
+```bash
+sudo apt install git build-essential alsa-utils
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+bash duck_hw/generate_microduck_wavs.sh
+gcc -std=gnu11 -O2 -Wall -Wextra duck_hw/play_wav.c -o duck_hw/play_wav
+```
+
+播放参数是 WAV 文件名（不含目录），程序自动从对应标签子目录查找：
+
+```bash
+cd duck_hw
+sudo ./play_wav chirp_a.wav
+sudo ./play_wav greet_a.wav
+sudo ./play_wav wheee_start_a.wav
+```
+
+`wheee` 的 start、loop、end 是分段音效；单独播放其中一段不会自动串接其余部分。若使用不同 ALSA 默认设备，可直接运行 `aplay -D <设备名> duck_sounds/chirp/chirp_a.wav` 检查设备。
+
 ### 1. ads1115_read.c：读取四路 ADC 原始值
 
 通过 `I2C_RDWR` 依次对 AIN0～AIN3 进行单端单次转换，配置量程为 ±4.096 V、采样率为 128 SPS，轮询转换完成状态。输出各通道的有符号十进制原始值及十六进制值；结束时尝试恢复原配置寄存器。每个通道读取一次后退出，不直接换算电压。
